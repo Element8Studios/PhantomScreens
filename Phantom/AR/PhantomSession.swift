@@ -1263,6 +1263,16 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
     }
 
+    /// A reduced picture of the camera view with the screen, for the review
+    /// page. Not saved to Photos.
+    func previewSnapshot() async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            arView.snapshot(saveToHDR: false) { image in
+                continuation.resume(returning: image?.downscaled(maxDimension: 1200))
+            }
+        }
+    }
+
     func showToast(_ text: String, duration: Double = 2.5) {
         toastToken += 1
         let token = toastToken
@@ -1301,6 +1311,9 @@ final class StatusLive: ObservableObject {
 @MainActor
 final class TrimLive: ObservableObject {
     @Published var color: UIColor?
+    /// ARKit's estimate of the room light's color temperature when the trim
+    /// was seen, used to see past warm or cool light.
+    @Published var lightKelvin: Float?
 }
 
 /// Developer overlay (Settings → Advanced → Debug overlay).

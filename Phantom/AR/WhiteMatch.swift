@@ -47,7 +47,11 @@ extension PhantomSession {
                       let image = await self.snapshot(),
                       let result = self.measureWhite(in: image, trimPoint: trimPoint) else { break }
                 outcome = "White matched to your trim."
-                if trimPoint == nil { self.live.trim.color = Self.srgbColor(result.trim) }
+                if trimPoint == nil {
+                    self.live.trim.color = Self.srgbColor(result.trim)
+                    self.live.trim.lightKelvin = self.arView.session.currentFrame?.lightEstimate
+                        .map { Float($0.ambientColorTemperature) }
+                }
                 // A background check ignores small differences (no jitter).
                 let deadband: Float = background && round == 0 ? 0.12 : 0
                 if self.applyWhiteCorrection(trim: result.trim, frame: result.frame, deadband: deadband) {

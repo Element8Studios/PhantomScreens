@@ -1,123 +1,117 @@
 import SwiftUI
 
-/// "Build your screen": the website's steps, with every choice already made
-/// from the measurement and the most popular options, so the customer only
-/// changes what they want to. The screen in AR updates live behind the sheet.
-///
-/// Opened on one step (from the quick-options buttons or a summary chip), it
-/// shows just that step, with a link to all the options.
+/// Customize: one option at a time, chosen from a row of tabs (Color, Mesh,
+/// Handle, Size, Type). Everything starts chosen for the customer from the
+/// measurement and the most popular options. The sheet opens short, so the
+/// screen stays visible above it and can still be dragged open and closed;
+/// pull it up for more room.
 struct BuildSheet: View {
+    typealias Step = OptionStep
+
     @ObservedObject var session: PhantomSession
     @ObservedObject var trim: TrimLive
     @Binding var unit: LengthUnit
-    /// The one step to show, or nil for all of them.
-    let focus: Step?
+    /// The option to open on.
+    let focus: Step
     let onReview: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var open: Step?
-    @State private var showAll = false
+    @State private var selected: Step?
+    @State private var detent: PresentationDetent = BuildSheet.short
 
-    enum Step: Hashable {
-        case type, measurement, closure, control, mesh, color
-    }
-
-    /// The step shown on its own, if any.
-    private var focused: Step? {
-        guard !showAll, let focus, steps.contains(focus) else { return nil }
-        return focus
-    }
+    private static let short = PresentationDetent.height(430)
 
     private var config: ScreenConfig { session.config }
+    private var steps: [Step] { OptionStep.steps(for: config.product) }
 
-    private var steps: [Step] {
-        var list: [Step] = [.type, .measurement]
-        if config.product.offersClosure { list.append(.closure) }
-        if config.product.isMotorized { list.append(.control) }
-        list += [.mesh, .color]
-        return list
+    /// The tab showing; falls back to Color if the product lost that option.
+    private var current: Step {
+        let step = selected ?? focus
+        return steps.contains(step) ? step : .color
     }
 
     var body: some View {
-        ScrollView {
-            if let step = focused {
-                focusedBody(step)
-            } else {
-                allSteps
+        VStack(spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(config.product.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(title(current))
+                        .font(.title3.bold())
+                }
+                Spacer()
+                DoneButton { dismiss() }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 8)
+
+            tabs
+            Divider().overlay(Color.white.opacity(0.12))
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    content(current)
+                    Button(action: onReview) {
+                        Text("Review Your Order")
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(.white, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+                }
+                .padding(20)
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        .presentationDetents([Self.short, .large], selection: $detent)
+        .presentationBackgroundInteraction(.enabled(upThrough: Self.short))
+        .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
         .animation(.smooth(duration: 0.2), value: session.config)
     }
 
-    /// Just one step, already open.
-    private func focusedBody(_ step: Step) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(config.product.title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(title(step))
-                        .font(.title3.bold())
+    /// One tab per option, with an underline on the one showing.
+    private var tabs: some View {
+        HStack(spacing: 0) {
+            ForEach(steps) { step in
+                let isCurrent = step == current
+                Button {
+                    withAnimation(.smooth(duration: 0.2)) { selected = step }
+                } label: {
+                    VStack(spacing: 4) {
+                        if step == .color {
+                            Circle()
+                                .fill(config.frameColor)
+                                .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 0.5))
+                                .frame(width: 18, height: 18)
+                                .frame(height: 22)
+                        } else {
+                            Image(systemName: step.symbol(for: config.product))
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(height: 22)
+                        }
+                        Text(step.tabTitle)
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .foregroundStyle(isCurrent ? Color.phantomCyan : Color.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .overlay(alignment: .bottom) {
+                        Capsule()
+                            .fill(isCurrent ? Color.phantomCyan : Color.clear)
+                            .frame(height: 3)
+                            .padding(.horizontal, 12)
+                    }
+                    .contentShape(Rectangle())
                 }
-                Spacer()
-                DoneButton { dismiss() }
+                .buttonStyle(.plain)
+                .accessibilityLabel(step.tabTitle)
+                .accessibilityAddTraits(isCurrent ? .isSelected : [])
             }
-            content(step)
-            Button {
-                withAnimation(.smooth(duration: 0.25)) { showAll = true }
-            } label: {
-                Label("All options", systemImage: "list.bullet")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.phantomCyan)
-            }
-            .padding(.top, 4)
         }
-        .padding(20)
-    }
-
-    private var allSteps: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("You are customizing")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(config.product.title)
-                        .font(.title3.bold())
-                }
-                Spacer()
-                DoneButton { dismiss() }
-            }
-            .padding(.bottom, 8)
-
-            ForEach(Array(steps.enumerated()), id: \.element) { index, step in
-                StepSection(number: index + 1, title: title(step), summary: summary(step),
-                            isOpen: open == step) {
-                    withAnimation(.smooth(duration: 0.25)) { open = open == step ? nil : step }
-                } content: {
-                    content(step)
-                }
-                Divider().overlay(Color.white.opacity(0.12))
-            }
-
-            Button(action: onReview) {
-                Text("Review Your Order")
-                    .font(.headline)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .background(.white, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 20)
-            Text("Everything above was chosen for you from your measurement. Tap Edit on any step to change it.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.top, 8)
-        }
-        .padding(20)
+        .padding(.horizontal, 8)
     }
 
     // MARK: - Steps
@@ -130,26 +124,6 @@ struct BuildSheet: View {
         case .control: return "Control"
         case .mesh: return "Mesh Type"
         case .color: return "Color"
-        }
-    }
-
-    private func summary(_ step: Step) -> String {
-        switch step {
-        case .type:
-            var text = config.product.title
-            if config.hasMeshLock { text += " with Mesh Lock" }
-            if config.product.hasRetractSide { text += " · retracts \(config.side.title.lowercased())" }
-            return text
-        case .measurement:
-            if let h = config.heightBand, let w = config.widthBand {
-                return "Height: \(h.title(unit))   Width: \(w.title(unit))"
-            }
-            return Length.size(width: config.width, height: config.height, unit: unit)
-                + (config.fitsProduct ? "" : " · custom size")
-        case .closure: return config.closure.title
-        case .control: return config.motorControl.title
-        case .mesh: return config.mesh.title
-        case .color: return config.colorUndecided ? "I'll decide later" : config.finishTitle
         }
     }
 
@@ -328,7 +302,7 @@ struct BuildSheet: View {
     private var colorStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let seen = trim.color {
-                let closest = FrameFinish.closest(to: seen)
+                let closest = FrameFinish.closest(to: seen, lightKelvin: trim.lightKelvin)
                 HStack(spacing: 10) {
                     FinishSwatch(finish: closest).frame(width: 30, height: 30)
                     VStack(alignment: .leading, spacing: 1) {
@@ -461,52 +435,6 @@ struct BuildSheet: View {
                 session.config.colorUndecided = false
             }
         )
-    }
-}
-
-/// One numbered step: a header with its current choice and Edit, and its
-/// options when open.
-private struct StepSection<Content: View>: View {
-    let number: Int
-    let title: String
-    let summary: String
-    let isOpen: Bool
-    let toggle: () -> Void
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button(action: toggle) {
-                HStack(alignment: .top, spacing: 12) {
-                    Text("\(number)")
-                        .font(.footnote.weight(.bold))
-                        .foregroundStyle(Color.phantomNavy)
-                        .frame(width: 26, height: 26)
-                        .background(Color.phantomCyan, in: Circle())
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(title).font(.headline)
-                        if !isOpen {
-                            Text(summary)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    Spacer()
-                    Text(isOpen ? "Done" : "Edit")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color.phantomCyan)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint(isOpen ? "Closes this step" : "Shows the options for this step")
-
-            if isOpen {
-                content.transition(.opacity)
-            }
-        }
-        .padding(.vertical, 14)
     }
 }
 

@@ -122,14 +122,19 @@ final class ScreenDoorEntity: Entity {
         rebuild()
     }
 
+    /// Starts at the configuration's screen position. After that the position
+    /// only changes through `setExtent` (dragging or animating), never when
+    /// an option changes.
     convenience init(config: ScreenConfig) {
         self.init()
         update(config)
+        setExtent(config.extent)
     }
 
     func update(_ newConfig: ScreenConfig) {
         let old = config
         config = newConfig
+        config.extent = extent
         if Self.shape(of: newConfig) != Self.shape(of: old) {
             rebuild()
             return
@@ -143,9 +148,6 @@ final class ScreenDoorEntity: Entity {
             for leaf in leaves where leaf.screen.model != nil {
                 leaf.screen.model?.materials = [material]
             }
-        }
-        if newConfig.extent != extent {
-            setExtent(newConfig.extent)
         }
     }
 
@@ -248,7 +250,8 @@ final class ScreenDoorEntity: Entity {
             buildMotorized(w: w, h: h, frame: frame)
         }
 
-        extent = min(max(config.extent, 0), 1)
+        // Keep the screen where it was: a new product or size rebuilds the
+        // hardware but doesn't move the screen.
         layoutLeaves()
     }
 

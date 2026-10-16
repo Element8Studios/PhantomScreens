@@ -286,26 +286,84 @@ enum FrameFinish: String, CaseIterable, Identifiable, Codable {
 
     var color: Color { Color(uiColor) }
 
-    /// The standard color closest to a color seen by the camera. Camera
-    /// exposure makes brightness unreliable, so hue and saturation count
-    /// more than lightness.
-    static func closest(to seen: UIColor) -> FrameFinish {
-        func lab(_ c: UIColor) -> SIMD3<Float> {
+    /// The standard color closest to a color seen by the camera.
+    ///
+    /// Warm room light makes white trim look almond to the camera, so part of
+    /// the light's color (ARKit's estimate, in kelvin) is taken back out
+    /// first; the camera's own white balance has already removed some of it. Brightness depends on exposure, so hue and
+    /// saturation count more than lightness. White trim is by far the most
+    /// common, so Classic White wins near-ties.
+    static func closest(to seen: UIColor, lightKelvin: Float? = nil) -> FrameFinish {
+        func rgb(_ c: UIColor) -> SIMD3<Float> {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             c.getRed(&r, green: &g, blue: &b, alpha: &a)
-            let v = SIMD3<Float>(Float(r), Float(g), Float(b))
-            let luma = max(0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z, 0.001)
-            let chroma = v / luma
-            return SIMD3(chroma.x - chroma.y, chroma.z - chroma.y, luma)
+            return SIMD3<Float>(Float(r), Float(g), Float(b))
         }
-        let target = lab(seen)
-        return standard.min { a, b in
-            func distance(_ f: FrameFinish) -> Float {
-                let d = lab(f.uiColor) - target
-                return d.x * d.x + d.y * d.y + 0.15 * d.z * d.z
+        func lab(_ v: SIMD3<Float>) -> SIMD3<Float> {
+            let y = max(0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z, 0.001)
+            let chroma = v / y
+            return SIMD3(chroma.x - chroma.y, chroma.z - chroma.y, y)
+        }
+        func luma(_ v: SIMD3<Float>) -> Float { 0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z }
+        var color = rgb(seen)
+        if let kelvin = lightKelvin, kelvin > 1000 {
+            // Remove 40% of the light's tint (tuned so white stays white from
+            // 2700 K to daylight), keeping the brightness as seen.
+            let light = ColorTemperature.rgb(kelvin: kelvin)
+            let daylight = ColorTemperature.rgb(kelvin: 6500)
+            let full = daylight / pointwiseMax(light, SIMD3(repeating: 0.05))
+            let corrected = color * (SIMD3(repeating: 1) + (full - SIMD3(repeating: 1)) * 0.4)
+            color = corrected * (luma(color) / max(luma(corrected), 0.0001))
+        }
+        let target = lab(color)
+        func distance(_ f: FrameFinish) -> Float {
+            let d = lab(rgb(f.uiColor)) - target
+            let score = d.x * d.x + d.y * d.y + 0.15 * d.z * d.z
+            return f == .classicWhite ? score * 0.5 : score
+        }
+        return standard.min { distance($0) < distance($1) } ?? .classicWhite
+    }
+}
+
+// MARK: - Option steps
+
+/// The options a customer can change, in the order the app offers them.
+enum OptionStep: String, CaseIterable, Identifiable, Hashable {
+    case color, mesh, closure, control, measurement, type
+
+    var id: String { rawValue }
+
+    var tabTitle: String {
+        switch self {
+        case .color: return "Color"
+        case .mesh: return "Mesh"
+        case .closure: return "Handle"
+        case .control: return "Control"
+        case .measurement: return "Size"
+        case .type: return "Type"
+        }
+    }
+
+    func symbol(for product: Product) -> String {
+        switch self {
+        case .color: return "paintpalette"
+        case .mesh: return "square.grid.3x3"
+        case .closure: return "hand.raised"
+        case .control: return "dot.radiowaves.left.and.right"
+        case .measurement: return "ruler"
+        case .type: return product.symbol
+        }
+    }
+
+    /// The steps that apply to a product.
+    static func steps(for product: Product) -> [OptionStep] {
+        allCases.filter { step in
+            switch step {
+            case .closure: return product.offersClosure
+            case .control: return product.isMotorized
+            default: return true
             }
-            return distance(a) < distance(b)
-        } ?? .classicWhite
+        }
     }
 }
 
@@ -348,11 +406,12 @@ struct SizeBand: Equatable {
 
 // MARK: - Configuration
 
-/// One line of an order.
+/// One line of an order, and the option step that changes it.
 struct LineItem: Identifiable, Equatable {
     let label: String
     let value: String
     let tag: PriceTag?
+    var step: OptionStep?
     var id: String { label }
 }
 
@@ -440,7 +499,17 @@ struct ScreenConfig: Equatable, Codable {
     func lineItems(unit: LengthUnit) -> [LineItem] {
         var items: [LineItem] = []
         func add(_ label: String, _ value: String, _ tag: PriceTag? = nil) {
-            items.append(LineItem(label: label, value: value, tag: tag))
+            let step: OptionStep?
+            switch label {
+            case "Product", "Type", "Retracts to the": step = .type
+            case "Measured size", "Height", "Width", "Size", "Mount": step = .measurement
+            case "Closure": step = .closure
+            case "Control": step = .control
+            case "Mesh": step = .mesh
+            case "Color": step = .color
+            default: step = nil
+            }
+            items.append(LineItem(label: label, value: value, tag: tag, step: step))
         }
         add("Product", product.title)
         if product.offersMeshLock {

@@ -20,9 +20,9 @@ on iOS 17–25).
 3. **Open and close it.** Drag the pull handle (or the bottom bar of a motorized screen,
    which also has ▲ ■ ▼ controls). Touch a corner of the screen and drag it to fine-tune.
    Hold **compare** to hide it.
-4. **Options** follows phantomscreens.com step by step, with everything pre-chosen. Chips
-   above the toolbar show each current choice and open just that step; the Options button
-   fans out quick buttons (tap, or press and slide):
+4. **Customize** covers the options on phantomscreens.com, with everything pre-chosen. The
+   option bar above the toolbar shows each current choice; tapping one opens a short tabbed
+   sheet on it, so the screen stays in view:
    - **Screen type**: Door Screen or Door Screen with Mesh Lock, and the retract side.
    - **Measurement**: the measured size and the matching height and width bands.
    - **Closure**: Latching Handle (preselected), Latching Handle with Latch Stop, Magnet Handle.
@@ -34,7 +34,8 @@ on iOS 17–25).
 
    Options say **Included** or **Additional cost**; there are no prices, since they vary by
    region.
-5. **Review** lists the order and sends it with your photos to a local Phantom expert,
+5. **Review** shows a snapshot of the screen in the opening and every selection (tap one to
+   change it), then **Request a Quote** sends it with your photos to a local Phantom expert,
    found with Apple Maps. Sent designs are kept in **Saved designs**.
 
 Everything for tuning and testing (detection, corners, placement nudges, lighting, white

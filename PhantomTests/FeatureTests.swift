@@ -181,4 +181,50 @@ final class FeatureTests: XCTestCase {
         XCTAssertNotNil(ScreenDoorEntity.doorHousingMesh(length: 2.03))
         XCTAssertNotNil(ScreenDoorEntity.windowHousingMesh(length: 0.93))
     }
+
+    func testWhiteTrimUnderWarmLightStaysWhite() {
+        // White trim under 3000 K light, after the camera has removed part
+        // of the warm cast, reads as a tan color to the camera.
+        let kelvin: Float = 3000
+        let cast = ColorTemperature.rgb(kelvin: kelvin) / ColorTemperature.rgb(kelvin: 6500)
+        let residual = SIMD3<Float>(pow(cast.x, 0.4), pow(cast.y, 0.4), pow(cast.z, 0.4))
+        func seen(_ finish: FrameFinish) -> UIColor {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            finish.uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+            let c = SIMD3<Float>(Float(r), Float(g), Float(b)) * residual * 0.9
+            return UIColor(red: CGFloat(c.x), green: CGFloat(c.y), blue: CGFloat(c.z), alpha: 1)
+        }
+        XCTAssertNotEqual(FrameFinish.closest(to: seen(.classicWhite)), .classicWhite,
+                          "without the light's color, warm white looks tan")
+        XCTAssertEqual(FrameFinish.closest(to: seen(.classicWhite), lightKelvin: kelvin), .classicWhite)
+        // A genuinely tan finish stays tan.
+        XCTAssertEqual(FrameFinish.closest(to: seen(.sandalWood), lightKelvin: kelvin), .sandalWood)
+    }
+
+    @MainActor
+    func testChangingOptionsKeepsTheScreenWhereItIs() {
+        var config = ScreenConfig()
+        config.extent = 0
+        let door = ScreenDoorEntity(config: config)
+        XCTAssertEqual(door.extent, 0, accuracy: 1e-6)
+        door.setExtent(0.6)
+        // Color, mesh, closure and even product changes don't move it.
+        config.finish = .phantomBlack
+        door.update(config)
+        config.mesh = .pet
+        config.closure = .magnet
+        door.update(config)
+        config.product = .double
+        door.update(config)
+        XCTAssertEqual(door.extent, 0.6, accuracy: 1e-6)
+    }
+
+    func testOrderLinesLinkToTheirOptions() {
+        let items = ScreenConfig().lineItems(unit: .inches)
+        XCTAssertEqual(items.first { $0.label == "Color" }?.step, .color)
+        XCTAssertEqual(items.first { $0.label == "Closure" }?.step, .closure)
+        XCTAssertEqual(items.first { $0.label == "Height" }?.step, .measurement)
+        XCTAssertEqual(OptionStep.steps(for: .window), [.color, .mesh, .measurement, .type])
+        XCTAssertEqual(OptionStep.steps(for: .motorized), [.color, .mesh, .control, .measurement, .type])
+    }
 }

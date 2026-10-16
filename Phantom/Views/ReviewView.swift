@@ -1,14 +1,18 @@
 import SwiftUI
 import UIKit
 
-/// Review Your Order: the chosen options, the local expert and contact
-/// details, handed to Mail, Messages or any share target. No prices: they
-/// vary by region, so the expert quotes.
+/// Review Your Order, in two pages:
+/// 1. What you chose: a snapshot of the screen in your opening and every
+///    selection. Tapping a selection goes back to Customize on that option.
+/// 2. Request a Quote: your details and local expert, handed to Mail,
+///    Messages or any share target.
+/// No prices: they vary by region, so the local expert quotes.
 struct ReviewView: View {
     @ObservedObject var session: PhantomSession
     @ObservedObject var store: DesignStore
     let unit: LengthUnit
-    let onEdit: () -> Void
+    /// Back to Customize on one option.
+    let onEdit: (OptionStep) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage("quote.name") private var name = ""
@@ -22,6 +26,8 @@ struct ReviewView: View {
     @State private var expert: LocalExpert?
     @State private var sharePayload: SharePayload?
     @State private var sent = false
+    /// A snapshot of the screen in the opening, taken as the review opens.
+    @State private var preview: UIImage?
 
     enum ContactMethod: String, CaseIterable, Identifiable {
         case call = "Call", text = "Text", email = "Email"
@@ -33,13 +39,22 @@ struct ReviewView: View {
         (!email.isEmpty || !phone.isEmpty)
     }
 
+    /// Photos the user took, or the snapshot if they took none.
+    private var attachments: [UIImage] {
+        if !session.photos.isEmpty { return session.photos }
+        return preview.map { [$0] } ?? []
+    }
+
     var body: some View {
         NavigationStack {
             if sent {
                 SentView(expertName: expert?.name) { dismiss() }
             } else {
-                form
+                summary
             }
+        }
+        .task {
+            if preview == nil { preview = await session.previewSnapshot() }
         }
         .sheet(item: $sharePayload) { payload in
             ShareSheet(items: payload.items) { completed in
@@ -50,49 +65,114 @@ struct ReviewView: View {
         }
     }
 
-    private var form: some View {
+    // MARK: - Page 1: your order
+
+    private var summary: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                ZStack(alignment: .bottomLeading) {
+                    Group {
+                        if let preview {
+                            Image(uiImage: preview).resizable().scaledToFill()
+                        } else {
+                            Color.white.opacity(0.06)
+                                .overlay(ProgressView())
+                        }
+                    }
+                    .frame(height: 240)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+
+                    LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(session.config.product.title).font(.headline)
+                        Text("\(Length.size(width: session.config.width, height: session.config.height, unit: unit)), measured in AR")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(14)
+                }
+                .frame(height: 240)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                VStack(spacing: 0) {
+                    let items = session.config.lineItems(unit: unit)
+                    ForEach(items) { item in
+                        selectionRow(item)
+                        if item.id != items.last?.id {
+                            Divider().overlay(Color.white.opacity(0.1)).padding(.leading, 14)
+                        }
+                    }
+                }
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                Text("Tap a selection to change it. Pricing varies by region: your local Phantom expert prepares your quote and confirms final measurements on site.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                NavigationLink {
+                    requestForm
+                } label: {
+                    Text("Request a Quote")
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(.white, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(20)
+        }
+        .navigationTitle("Review Your Order")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func selectionRow(_ item: LineItem) -> some View {
+        let row = HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.label).font(.caption).foregroundStyle(.secondary)
+                Text(item.value).font(.subheadline).foregroundStyle(.white)
+            }
+            Spacer()
+            if let tag = item.tag {
+                Text(tag.label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tag == .included ? Color.secondary : Color.phantomCyan)
+            }
+            if item.step != nil {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+
+        if let step = item.step {
+            Button { onEdit(step) } label: { row }
+                .buttonStyle(.plain)
+                .accessibilityHint("Change this option")
+        } else {
+            row
+        }
+    }
+
+    // MARK: - Page 2: request a quote
+
+    private var requestForm: some View {
         Form {
             Section {
-                ForEach(session.config.lineItems(unit: unit)) { item in
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.label).font(.caption).foregroundStyle(.secondary)
-                            Text(item.value).font(.subheadline)
-                        }
-                        Spacer()
-                        if let tag = item.tag {
-                            Text(tag.label)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(tag == .included ? Color.secondary : Color.phantomCyan)
-                        }
-                    }
-                }
-                Button("Edit options", action: onEdit)
-            } header: {
-                Text("Your order")
-            } footer: {
-                Text("Pricing varies by region. Your local Phantom expert prepares your quote and confirms final measurements on site.")
-            }
-
-            Section {
-                HStack(spacing: 14) {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(red: 0.66, green: 0.78, blue: 0.71))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(session.config.finish.color, lineWidth: 4))
-                        .frame(width: 44, height: 58)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(session.config.product.title).font(.headline)
-                        Text(session.config.summary)
-                            .font(.subheadline).foregroundStyle(.secondary)
-                        Text("\(Length.size(width: session.config.width, height: session.config.height, unit: .inches)), measured in AR")
-                            .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
                 TextField("Opening name, e.g. Back patio door", text: $openingName)
             } footer: {
-                Text("Your local Phantom expert confirms final measurements before installation.")
+                Text("Helps your expert if you send more than one opening.")
             }
 
             Section("Your details") {
@@ -108,16 +188,9 @@ struct ReviewView: View {
                     .keyboardType(.phonePad)
                 TextField("ZIP or postal code", text: $zip)
                     .textContentType(.postalCode)
-            }
-
-            Section {
                 Picker("Best way to reach you", selection: $contact) {
                     ForEach(ContactMethod.allCases) { Text($0.rawValue).tag($0) }
                 }
-                Toggle("Attach my AR photos (\(session.photos.count))", isOn: $attachPhotos)
-                    .disabled(session.photos.isEmpty)
-                TextField("Notes for your expert", text: $notes, axis: .vertical)
-                    .lineLimit(2...5)
             }
 
             Section {
@@ -130,6 +203,13 @@ struct ReviewView: View {
                 }
             } footer: {
                 Text("Phantom Screens are sold and professionally installed by authorized distributors.")
+            }
+
+            Section {
+                Toggle("Attach pictures (\(attachments.count))", isOn: $attachPhotos)
+                    .disabled(attachments.isEmpty)
+                TextField("Notes for your expert", text: $notes, axis: .vertical)
+                    .lineLimit(2...5)
             }
 
             Section {
@@ -147,13 +227,8 @@ struct ReviewView: View {
                 }
             }
         }
-        .navigationTitle("Review Your Order")
+        .navigationTitle("Request a Quote")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-            }
-        }
     }
 
     private var resolvedOpeningName: String {
@@ -193,12 +268,12 @@ struct ReviewView: View {
         lines += ["", "Sent from the Phantom Screens app. Measured in AR; final measurements to be confirmed on site."]
 
         var items: [Any] = [lines.joined(separator: "\n")]
-        if attachPhotos { items += session.photos }
+        if attachPhotos { items += attachments }
         return items
     }
 
     private func finish() {
-        store.add(name: resolvedOpeningName, config: session.config, photo: session.photos.last)
+        store.add(name: resolvedOpeningName, config: session.config, photo: session.photos.last ?? preview)
         withAnimation { sent = true }
     }
 }

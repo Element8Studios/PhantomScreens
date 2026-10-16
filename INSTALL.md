@@ -79,13 +79,13 @@ The build number shows in the app under **Settings → Version**.
    If it doesn't find the opening, tap it on screen, or tap **Corners** and mark two opposite corners.
 3. The app picks the product from the size (single, double-French, oversized, window or motorized)
    and slides the screen partly open. **Drag the pull handle** (or use ▲ ■ ▼ on a motorized screen).
-4. Everything is already chosen for you. To change something:
-   - tap a chip above the toolbar (color, mesh, handle, size, type) to open just that option, or
-   - tap **Options** to fan out quick buttons, or press **Options** and slide to one and let go.
-   In **Color**, the eyedropper matches any real color with the camera.
+4. Everything is already chosen for you. The bar above the toolbar shows each choice
+   (Color, Mesh, Handle, Size, Type); tap one to change it. Customize opens short so the screen
+   stays in view, with tabs to switch options. In **Color**, the eyedropper matches any real
+   color with the camera.
 5. Hold the **compare** button (top right) to see the opening without the screen.
-6. **Photo** saves a picture. **Review** shows your order and sends it to a local Phantom expert,
-   who quotes the price for your region.
+6. **Photo** saves a picture. **Review** shows a snapshot and every selection (tap one to change it),
+   then **Request a Quote** sends it to a local Phantom expert, who quotes the price for your region.
 
 ## Every 7 days: reinstall
 
