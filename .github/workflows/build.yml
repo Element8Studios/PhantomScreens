@@ -28,6 +28,9 @@ jobs:
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
 
+      - name: Fix Windows line endings in scripts
+        run: sed -i '' $'s/\r$//' scripts/*.sh
+
       - name: Build unsigned IPA
         run: BUILD=${{ github.run_number }} bash scripts/build-ipa.sh
 
@@ -59,6 +62,9 @@ jobs:
         run: |
           XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
           sudo xcode-select -s "$XCODE"
+
+      - name: Fix Windows line endings in scripts
+        run: sed -i '' $'s/\r$//' scripts/*.sh
 
       - name: Unit tests
         run: bash scripts/test.sh
