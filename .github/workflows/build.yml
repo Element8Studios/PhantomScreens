@@ -1,0 +1,64 @@
+name: Build
+
+# Manual only: nothing builds on push. Start a build from the Actions tab
+# (Build → Run workflow). Tick "Also run unit tests" only when you need
+# them; they take about four times as many minutes as the build.
+on:
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: "Also run unit tests (uses more minutes)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Build unsigned IPA
+        run: BUILD=${{ github.run_number }} bash scripts/build-ipa.sh
+
+      - name: Name the artifact
+        run: |
+          IPA=$(ls build/ipa/*.ipa)
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+          echo "NAME=$(basename "$IPA" .ipa)" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.IPA }}
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log
+          path: build/build.log
+
+  test:
+    if: ${{ inputs.run_tests }}
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+
+      - name: Unit tests
+        run: bash scripts/test.sh
