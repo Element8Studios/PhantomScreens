@@ -1,0 +1,48 @@
+name: Phantom
+options:
+  bundleIdPrefix: com.phantomscreens
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "3.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Phantom:
+    type: application
+    platform: iOS
+    sources:
+      - Phantom
+    info:
+      path: Config/Info.plist
+      properties:
+        CFBundleDisplayName: Phantom Screens
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities:
+          - arkit
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIStatusBarHidden: true
+        NSCameraUsageDescription: Phantom Screens uses the camera and LiDAR scanner to measure your door, window or outdoor opening and show a retractable screen in it.
+        NSPhotoLibraryAddUsageDescription: Phantom Screens saves your AR preview photos to your library.
+        NSLocationWhenInUseUsageDescription: For outdoor sun shadows, Phantom Screens uses your approximate location and the time to work out where the sun is.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.phantomscreens.visualizer
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Pattern AppIcon-Light AppIcon-Cyan"
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
+  PhantomTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - PhantomTests
+    dependencies:
+      - target: Phantom
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.phantomscreens.visualizer.tests

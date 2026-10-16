@@ -1,0 +1,29 @@
+# Codemagic (codemagic.io) builds on a hosted Mac, for when GitHub Actions
+# minutes run out or no Mac is at hand. Builds start only by hand from the
+# Codemagic dashboard ("Start new build"); there are no automatic triggers.
+# The IPA appears under the build's Artifacts.
+workflows:
+  phantom-ipa:
+    name: Phantom Screens IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      xcode: latest
+    scripts:
+      - name: Build unsigned IPA
+        script: BUILD=$BUILD_NUMBER ./scripts/build-ipa.sh
+    artifacts:
+      - build/ipa/*.ipa
+      - build/build.log
+
+  phantom-tests:
+    name: Phantom Screens tests
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      xcode: latest
+    scripts:
+      - name: Unit tests
+        script: ./scripts/test.sh
+    artifacts:
+      - build/test.log
