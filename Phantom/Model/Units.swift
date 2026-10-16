@@ -57,11 +57,6 @@ enum Length {
         let suffix = " " + unit.short
         return w.replacingOccurrences(of: suffix, with: "") + " × " + h
     }
-
-    /// Rounds to the nearest eighth of an inch.
-    static func snapped(_ metres: Float) -> Float {
-        Float(eighths(metres)) * eighth
-    }
 }
 
 extension Color {

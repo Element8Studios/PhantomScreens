@@ -50,6 +50,10 @@ final class DesignStore: ObservableObject {
         return design
     }
 
+    func deleteAll() {
+        designs.forEach(delete)
+    }
+
     func delete(_ design: SavedDesign) {
         if let file = design.photoFile {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(file))

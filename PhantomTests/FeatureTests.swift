@@ -150,6 +150,8 @@ final class FeatureTests: XCTestCase {
         config.height = 2.0
         config.side = .left
         config.meshLock = true
+        // Surface mount: the mesh fills the measured opening, hardware outside it.
+        config.mount = .outside
         for product in Product.allCases {
             config.product = product
             config.extent = 1
@@ -174,11 +176,27 @@ final class FeatureTests: XCTestCase {
                 }
             }
         }
+        // Inside the jamb, everything fits within the measured opening.
+        config.mount = .inside
+        for product in [Product.single, .double, .window, .motorized] {
+            config.product = product
+            let door = ScreenDoorEntity(config: config)
+            for track in door.tracks {
+                XCTAssertLessThan(abs(track.bar.x), config.width / 2, "\(product)")
+                XCTAssertLessThan(abs(track.bar.y), config.height / 2, "\(product)")
+                XCTAssertLessThan(track.bar.z, 0, "set back behind the trim: \(product)")
+            }
+        }
+        config.mount = .outside
+
         // Past 15 ft an oversized opening gets two screens.
         config.product = .oversized
         config.width = 5.5
         XCTAssertEqual(ScreenDoorEntity(config: config).tracks.count, 2)
-        XCTAssertNotNil(ScreenDoorEntity.doorHousingMesh(length: 2.03))
+        let hardware = ScreenDoorEntity.DoorHardware.standard
+        XCTAssertNotNil(ScreenDoorEntity.chamferedMesh(length: 2.03, width: hardware.housingWidth,
+                                                       depth: hardware.housingDepth, chamfer: hardware.chamfer,
+                                                       vertical: true))
         XCTAssertNotNil(ScreenDoorEntity.windowHousingMesh(length: 0.93))
     }
 

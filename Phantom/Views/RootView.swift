@@ -114,7 +114,7 @@ struct RootView: View {
             case .help:
                 HelpView()
             case .settings:
-                SettingsView(session: session)
+                SettingsView(session: session, store: store)
             }
         }
         .preferredColorScheme(.dark)
@@ -437,8 +437,9 @@ private struct PlacedControls: View {
     }
 }
 
-/// The current choices, one button each: the option's icon (the frame color
-/// for Color) over its current value. Tapping one opens Customize on it.
+/// One button per option: its icon (the current frame color for Color) over
+/// its name. Tapping one opens Customize on it. VoiceOver reads the current
+/// choice too.
 private struct OptionBar: View {
     let config: ScreenConfig
     let unit: LengthUnit
@@ -460,10 +461,9 @@ private struct OptionBar: View {
                                 .font(.system(size: 17, weight: .semibold))
                                 .frame(height: 22)
                         }
-                        Text(value(step))
-                            .font(.caption2.weight(.semibold))
+                        Text(step.tabTitle)
+                            .font(.caption.weight(.semibold))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.7)
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 2)
@@ -548,7 +548,7 @@ private struct DebugOverlay: View {
         VStack {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(live.fps) fps")
+                    Text("\(live.fps) fps · \(live.outdoors ? "outdoors" : "indoors")")
                     if stage == .finding {
                         Text("Found by: \(live.method)")
                         Text("Wall plane: \(live.wall ? "yes" : "no")")
@@ -693,7 +693,7 @@ private struct ColorPickerOverlay: View {
 
     private var instruction: String {
         purpose == .whiteBalance
-            ? "Aim at your white trim, with the screen's frame still in view."
+            ? "Aim at something white, with the screen's frame still in view."
             : "Aim the circle at any color, like your trim. It becomes the frame color."
     }
 

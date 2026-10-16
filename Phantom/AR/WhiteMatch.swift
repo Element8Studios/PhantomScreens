@@ -1,19 +1,23 @@
 import RealityKit
 import UIKit
 
-/// Matches the rendered frame to the real trim around the opening.
+/// White balance: makes the rendered frame sit in the scene's light.
 ///
-/// Takes a snapshot of the view (camera image plus the rendered screen) and
-/// samples a ring of points just outside the opening and its hardware. The
-/// samples closest to white (bright and neutral: the trim, not the wall's
-/// shadows or the floor) are averaged as the reference white. The rendered
-/// frame is sampled on its housing, then the virtual exposure and color gain
-/// are nudged until the two agree. A few rounds converge because each one
-/// measures the actual result, and corrections ease in rather than jump.
+/// Takes a snapshot of the view (camera image plus the rendered screen). The
+/// reference is the scene's own white: the brightest neutral surfaces in
+/// view, away from the screen, ignoring clipped areas like sky, lamps and
+/// glare. Nothing is assumed about the trim, which may not be white at all.
+/// The rendered frame is sampled on the flat front of its housing, then the
+/// virtual exposure and a gentle color gain are nudged until the frame's
+/// white sits like a real white surface in that light. A few rounds converge
+/// because each one measures the actual result, and corrections ease in.
 ///
-/// With "Match white to trim automatically" on, this runs once, when the
-/// screen has faded in. Settings → Advanced → Keep re-checking white repeats
-/// it every few seconds (off by default, since it can visibly shift).
+/// Picking a white surface by hand (Settings → Advanced) uses that point as
+/// the reference instead, matched fully.
+///
+/// With "Match white automatically" on, this runs once, when the screen has
+/// faded in. Settings → Advanced → Keep re-checking white repeats it every
+/// few seconds (off by default, since it can visibly shift).
 extension PhantomSession {
     /// - Parameters:
     ///   - trimPoint: a screen point on the trim picked by the user; nil
@@ -37,8 +41,8 @@ extension PhantomSession {
         whiteMatchTask = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
             var outcome = trimPoint == nil
-                ? "Couldn't see the trim. Step back so the trim around the opening is in view."
-                : "Keep the screen's frame in view while you aim at the trim."
+                ? "Couldn't measure the light. Step back so more of the room is in view."
+                : "Keep the screen's frame in view while you aim at something white."
             var unchanged = false
             for round in 0..<4 {
                 guard let self, !Task.isCancelled else { return }
@@ -46,15 +50,16 @@ extension PhantomSession {
                 guard !Task.isCancelled,
                       let image = await self.snapshot(),
                       let result = self.measureWhite(in: image, trimPoint: trimPoint) else { break }
-                outcome = "White matched to your trim."
-                if trimPoint == nil {
-                    self.live.trim.color = Self.srgbColor(result.trim)
+                outcome = trimPoint == nil ? "White balanced to the room's light." : "White matched to the surface you picked."
+                if trimPoint == nil, let surround = result.surround {
+                    self.live.trim.color = Self.srgbColor(surround)
                     self.live.trim.lightKelvin = self.arView.session.currentFrame?.lightEstimate
                         .map { Float($0.ambientColorTemperature) }
                 }
                 // A background check ignores small differences (no jitter).
                 let deadband: Float = background && round == 0 ? 0.12 : 0
-                if self.applyWhiteCorrection(trim: result.trim, frame: result.frame, deadband: deadband) {
+                if self.applyWhiteCorrection(trim: result.trim, frame: result.frame, deadband: deadband,
+                                             picked: trimPoint != nil) {
                     unchanged = background && round == 0
                     break
                 }
@@ -113,121 +118,99 @@ extension PhantomSession {
         }
     }
 
-    /// Linear RGB of the real trim and the rendered frame, or nil if not visible.
-    private func measureWhite(in image: UIImage, trimPoint: CGPoint? = nil) -> (trim: SIMD3<Float>, frame: SIMD3<Float>)? {
-        guard let o = fittedOpening, let cg = image.cgImage else { return nil }
+    /// Linear RGB of the reference white and the rendered frame, or nil if
+    /// either can't be seen; plus the real trim's color around the opening
+    /// (for the closest-color suggestion), if it was in view.
+    private func measureWhite(in image: UIImage, trimPoint: CGPoint? = nil)
+        -> (trim: SIMD3<Float>, frame: SIMD3<Float>, surround: SIMD3<Float>?)? {
+        guard let o = fittedOpening, let door, let cg = image.cgImage else { return nil }
         let scale = CGFloat(cg.width) / max(arView.bounds.width, 1)
-        // Sample the painted hardware on its flat front face: the door
-        // housing on the retract side (both sides for doubles), or the
-        // housing or headbox across the top.
-        let hw = o.width / 2
-        let hh = o.height / 2
-        let hardware = ScreenDoorEntity.hardware(for: config)
-        let mountOffset: Float = config.mount == .outside ? ScreenDoorEntity.mountDepth(for: config) / 2 + 0.01 : 0
-        let doorFront = o.normal * (hardware.housingDepth / 2 + mountOffset)
-        let top = o.center + o.up * hh
+        let bounds = arView.bounds.insetBy(dx: 8, dy: 8)
 
-        func housingPoints(side: Float) -> [SIMD3<Float>] {
-            let x = o.center + o.right * side * (hw + hardware.housingWidth / 2) + doorFront
-            return [x + o.up * (o.height * 0.25), x - o.up * (o.height * 0.25)]
-        }
-        /// Two points on the front of a box of `size` lying across the top.
-        func topPoints(size: Float) -> [SIMD3<Float>] {
-            let center = top + o.up * (size / 2) + o.normal * (size / 2 + mountOffset)
-            return [center - o.right * (o.width * 0.25), center + o.right * (o.width * 0.25)]
+        // The rendered frame, on the front of its housing or headbox.
+        let frame: [SIMD3<Float>] = door.paintSamplePoints.compactMap { local in
+            guard let screen = arView.project(door.convert(position: local, to: nil)),
+                  bounds.contains(screen) else { return nil }
+            return Self.averageLinear(cg, at: CGPoint(x: screen.x * scale, y: screen.y * scale))
         }
 
-        // How far the hardware reaches past each edge of the opening, so the
-        // real surroundings are sampled beyond it: left, right, top, bottom
-        // (nil: don't sample that side; below a door is floor, not trim).
-        let reach: (left: Float, right: Float, top: Float, bottom: Float?)
-        var framePoints: [SIMD3<Float>] = []
-        switch config.product {
-        case .single, .sliding, .oversized, .double:
-            let track = ScreenDoorEntity.trackThickness
-            if ScreenDoorEntity.hasTwoHousings(config) {
-                framePoints = housingPoints(side: -1) + housingPoints(side: 1)
-                reach = (left: hardware.housingWidth, right: hardware.housingWidth, top: track, bottom: nil)
-            } else {
-                let s: Float = config.side == .left ? -1 : 1
-                framePoints = housingPoints(side: s)
-                // The far side has the closed pull bar and end clip.
-                let far = hardware.barWidth + 0.03
-                if s < 0 {
-                    reach = (left: hardware.housingWidth, right: far, top: track, bottom: nil)
-                } else {
-                    reach = (left: far, right: hardware.housingWidth, top: track, bottom: nil)
-                }
-            }
-        case .window:
-            framePoints = topPoints(size: ScreenDoorEntity.windowHousing)
-            let track = ScreenDoorEntity.trackThickness
-            reach = (left: track, right: track, top: ScreenDoorEntity.windowHousing, bottom: ScreenDoorEntity.barWidth)
-        case .motorized:
-            framePoints = topPoints(size: ScreenDoorEntity.headbox)
-            let track = ScreenDoorEntity.sideTrackWidth
-            reach = (left: track, right: track, top: ScreenDoorEntity.headbox, bottom: nil)
-        }
-
-        // A ring of points around the opening, just past the hardware.
-        var trimPoints: [SIMD3<Float>] = []
-        let along: [Float] = [-0.8, -0.4, 0, 0.4, 0.8]
-        for gap: Float in [0.03, 0.07, 0.11] {
-            for t in along {
-                trimPoints.append(o.center - o.right * (hw + reach.left + gap) + o.up * (t * hh))
-                trimPoints.append(o.center + o.right * (hw + reach.right + gap) + o.up * (t * hh))
-                trimPoints.append(top + o.up * (reach.top + gap) + o.right * (t * hw))
-                if let bottom = reach.bottom {
-                    trimPoints.append(o.center - o.up * (hh + bottom + gap) + o.right * (t * hw))
-                }
-            }
-        }
-
-        func samples(_ points: [SIMD3<Float>]) -> [SIMD3<Float>] {
-            points.compactMap { point -> SIMD3<Float>? in
-                guard let screen = arView.project(point),
-                      arView.bounds.insetBy(dx: 8, dy: 8).contains(screen) else { return nil }
-                return Self.averageLinear(cg, at: CGPoint(x: screen.x * scale, y: screen.y * scale))
-            }
-        }
-        let trim: [SIMD3<Float>]
+        let reference: SIMD3<Float>?
         if let trimPoint {
-            trim = [Self.averageLinear(cg, at: CGPoint(x: trimPoint.x * scale, y: trimPoint.y * scale))].compactMap { $0 }
+            reference = Self.averageLinear(cg, at: CGPoint(x: trimPoint.x * scale, y: trimPoint.y * scale))
         } else {
-            trim = Self.whitest(samples(trimPoints))
+            // Leave out the screen and its hardware (with a margin), and the
+            // sky at the top of the view when outdoors.
+            var around = o
+            around.width += 0.5
+            around.height += 0.5
+            let region = around.corners.compactMap { arView.project($0) }
+            reference = Self.sceneWhite(cg, viewSize: arView.bounds.size,
+                                        excluding: region.count == 4 ? region : [],
+                                        skipTop: isOutdoors ? 0.15 : 0)
         }
-        let frame = samples(framePoints)
-        guard !trim.isEmpty, frame.count >= 2 else { return nil }
-        let t = trimPoint == nil ? Self.mean(trim) : Self.median(trim)
+
+        guard let t = reference, frame.count >= 2 else { return nil }
         let f = Self.median(frame)
         guard Self.luma(t) > 0.02, Self.luma(f) > 0.005 else { return nil }
-        return (t, f)
+        return (t, f, surroundColor(in: cg, scale: scale, opening: o))
     }
 
-    /// Sets new targets for exposure and colour gain. Returns true once the
-    /// frame is within about 4% of the trim (or within `deadband` stops, in
-    /// which case nothing changes).
-    private func applyWhiteCorrection(trim: SIMD3<Float>, frame: SIMD3<Float>, deadband: Float = 0) -> Bool {
+    /// The trim's own color: the median of a ring of points just past the
+    /// hardware (or just outside the opening, for an inside mount).
+    private func surroundColor(in cg: CGImage, scale: CGFloat, opening o: Opening) -> SIMD3<Float>? {
+        let reach = ScreenDoorEntity.reach(for: config)
+        let inside = config.mount == .inside
+        let hw = o.width / 2
+        let hh = o.height / 2
+        var points: [SIMD3<Float>] = []
+        for gap: Float in [0.03, 0.06] {
+            for t: Float in [-0.6, 0, 0.6] {
+                points.append(o.center - o.right * (hw + (inside ? 0 : reach.left) + gap) + o.up * (t * hh))
+                points.append(o.center + o.right * (hw + (inside ? 0 : reach.right) + gap) + o.up * (t * hh))
+                points.append(o.center + o.up * (hh + (inside ? 0 : reach.top) + gap) + o.right * (t * hw))
+            }
+        }
+        let bounds = arView.bounds.insetBy(dx: 8, dy: 8)
+        let seen: [SIMD3<Float>] = points.compactMap { point in
+            guard let screen = arView.project(point), bounds.contains(screen) else { return nil }
+            return Self.averageLinear(cg, at: CGPoint(x: screen.x * scale, y: screen.y * scale))
+        }
+        return seen.count >= 4 ? Self.median(seen) : nil
+    }
+
+    /// True when the camera's exposure says the phone is outdoors in daylight.
+    var isOutdoors: Bool {
+        guard let frame = arView.session.currentFrame else { return false }
+        let intensity = frame.lightEstimate?.ambientIntensity ?? 0
+        return frame.camera.exposureDuration < 1.0 / 400 || intensity > 2000
+    }
+
+    /// Sets new targets for exposure and color gain. Returns true once the
+    /// frame is within about 4% of the reference (or within `deadband` stops,
+    /// in which case nothing changes).
+    ///
+    /// Automatic matching keeps the color correction gentle (the brightest
+    /// neutral surface may be off-white) and won't darken the frame by more
+    /// than half a stop (a scene with no white in it shouldn't turn white
+    /// paint grey). A white the user picked by hand is matched fully.
+    private func applyWhiteCorrection(trim: SIMD3<Float>, frame: SIMD3<Float>, deadband: Float = 0,
+                                      picked: Bool = false) -> Bool {
         let ratio = Self.luma(trim) / Self.luma(frame)
-        // Only match colour when the chosen frame is white; otherwise the
-        // trim's colour says nothing about how the paint should look.
-        let matchColour = config.finish == .classicWhite
         let trimChroma = trim / Self.luma(trim)
         let frameChroma = frame / Self.luma(frame)
         let chromaRatio = trimChroma / frameChroma
-        let chromaOff = matchColour
-            ? max(abs(log2(chromaRatio.x)), abs(log2(chromaRatio.y)), abs(log2(chromaRatio.z)))
-            : 0
+        let chromaOff = max(abs(log2(chromaRatio.x)), abs(log2(chromaRatio.y)), abs(log2(chromaRatio.z)))
         if deadband > 0, abs(log2(ratio)) < deadband, chromaOff < deadband { return true }
 
         let step = min(max(log2(ratio), -1), 1)
-        matchedExposure = min(max(matchedExposure + step * 0.85, -1.5), 2.5)
-        if matchColour {
-            var gain = colorGain * SIMD3<Float>(
-                pow(chromaRatio.x, 0.8), pow(chromaRatio.y, 0.8), pow(chromaRatio.z, 0.8))
-            gain /= max(gain.x, max(gain.y, gain.z))
-            colorGain = gain.clamped(lowerBound: SIMD3(repeating: 0.75), upperBound: SIMD3(repeating: 1))
-        }
+        let lowest: Float = picked ? -1.5 : -0.5
+        matchedExposure = min(max(matchedExposure + step * 0.85, lowest), 2.5)
+        let strength: Float = picked ? 0.8 : 0.5
+        var gain = colorGain * SIMD3<Float>(
+            pow(chromaRatio.x, strength), pow(chromaRatio.y, strength), pow(chromaRatio.z, strength))
+        gain /= max(gain.x, max(gain.y, gain.z))
+        let floor: Float = picked ? 0.75 : 0.88
+        colorGain = gain.clamped(lowerBound: SIMD3(repeating: floor), upperBound: SIMD3(repeating: 1))
         applyExposure()
         return abs(log2(ratio)) < 0.06
     }
@@ -238,9 +221,54 @@ extension PhantomSession {
         0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z
     }
 
-    /// The samples closest to white: bright and neutral. Walls, shadows,
-    /// floors and furniture around the opening drop out; the trim stays.
-    static func whitest(_ samples: [SIMD3<Float>]) -> [SIMD3<Float>] {
+    /// The scene's white: the average of the brightest neutral samples of a
+    /// reduced copy of the image, outside `region` (a view-space polygon) and
+    /// below the top `skipTop` of the view. Clipped pixels (sky, lamps,
+    /// glare) are left out, since their true color is unknown.
+    static func sceneWhite(_ image: CGImage, viewSize: CGSize, excluding region: [CGPoint],
+                           skipTop: CGFloat) -> SIMD3<Float>? {
+        let width = 54
+        let height = max(1, Int((CGFloat(width) * CGFloat(image.height) / CGFloat(max(image.width, 1))).rounded()))
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn, viewSize.width > 0, viewSize.height > 0 else { return nil }
+
+        let excluded: CGPath? = region.count >= 3 ? {
+            let path = CGMutablePath()
+            path.addLines(between: region)
+            path.closeSubpath()
+            return path
+        }() : nil
+
+        var samples: [SIMD3<Float>] = []
+        samples.reserveCapacity(width * height)
+        for y in 0..<height {
+            // Row 0 of the bitmap is the top of the image.
+            let viewY = (CGFloat(y) + 0.5) / CGFloat(height) * viewSize.height
+            if viewY < skipTop * viewSize.height { continue }
+            for x in 0..<width {
+                let viewX = (CGFloat(x) + 0.5) / CGFloat(width) * viewSize.width
+                if let excluded, excluded.contains(CGPoint(x: viewX, y: viewY)) { continue }
+                let i = (y * width + x) * 4
+                let r = pixels[i], g = pixels[i + 1], b = pixels[i + 2]
+                if max(r, max(g, b)) >= 250 { continue }
+                samples.append(SIMD3(srgbToLinear(r), srgbToLinear(g), srgbToLinear(b)))
+            }
+        }
+        guard samples.count >= 40 else { return nil }
+        return mean(whitest(samples, fraction: 0.06))
+    }
+
+    /// The samples closest to white: bright and neutral.
+    static func whitest(_ samples: [SIMD3<Float>], fraction: Float) -> [SIMD3<Float>] {
         func whiteness(_ c: SIMD3<Float>) -> Float {
             let high = max(c.x, max(c.y, c.z))
             let low = min(c.x, min(c.y, c.z))
@@ -248,7 +276,7 @@ extension PhantomSession {
             return luma(c) * max(0, 1 - spread)
         }
         let ranked = samples.sorted { whiteness($0) > whiteness($1) }
-        let keep = max(3, ranked.count * 3 / 10)
+        let keep = max(3, Int(Float(ranked.count) * fraction))
         return Array(ranked.prefix(keep))
     }
 

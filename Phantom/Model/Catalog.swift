@@ -475,13 +475,6 @@ struct ScreenConfig: Equatable, Codable {
         finish == .custom ? "Custom Color \(customColorHex)" : finish.title
     }
 
-    var colorTitle: String { colorUndecided ? "Undecided" : finishTitle }
-
-    var screenTypeTitle: String {
-        guard product.offersMeshLock else { return product.title }
-        return hasMeshLock ? "Door Screen with Mesh Lock" : "Door Screen"
-    }
-
     var heightBand: SizeBand? { product.usesSizeBands ? SizeBand.band(for: height, in: SizeBand.heights) : nil }
     var widthBand: SizeBand? { product.usesSizeBands ? SizeBand.band(for: width, in: SizeBand.widths) : nil }
     var fitsProduct: Bool { product.fits(width: width, height: height) }

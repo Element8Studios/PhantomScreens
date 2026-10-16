@@ -11,12 +11,15 @@ on iOS 17–25).
 
 1. **Find the opening.** On LiDAR iPhones, depth is measured against ARKit's wall plane,
    so the room beyond and an open door leaf don't throw off the edges. Closed doors are
-   found from ARKit's door and window labels. Tap an opening to point the search at it,
+   found from ARKit's door and window labels, or as a rectangle in the camera image when
+   the door blends into the wall. Tap an opening to point the search at it,
    or mark two corners by hand. Other iPhones look for the frame's outline.
-2. **Place.** The app suggests the product from the size, the sill height and the light:
-   Single, Sliding, Double-French or Oversized Door Screen, Window Screen, or a Motorized
-   Screen for porches and patios. It fades in once ARKit is tracking it and matches the
-   frame's white once to the whitest surfaces around the opening (usually the trim).
+2. **Place.** The app suggests the product from the size, the sill height and whether it's
+   indoors or out: Single, Sliding, Double-French or Oversized Door Screen, Window Screen, or
+   a Motorized Screen for porches and patios. It picks inside-jamb or surface mount from how
+   deep the door sits behind the trim. It fades in once ARKit is tracking it and balances the
+   frame's white once to the room's light (the brightest neutral surfaces in view, without
+   assuming the trim is white).
 3. **Open and close it.** Drag the pull handle (or the bottom bar of a motorized screen,
    which also has ▲ ■ ▼ controls). Touch a corner of the screen and drag it to fine-tune.
    Hold **compare** to hide it.

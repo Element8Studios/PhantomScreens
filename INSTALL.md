@@ -116,9 +116,12 @@ A paid Apple Developer account ($99/year) makes it last a year instead.
 
 - If it keeps finding the wrong opening, tap inside the one you want. To search only after a tap,
   turn on **Settings → Advanced → Wait for a tap before finding**.
-- **White balance:** when the screen appears, the app matches the frame's white once to the whitest
-  surfaces around the opening (usually the trim). To do it by hand:
-  **Settings → Advanced → Pick the trim by hand**, aim the circle at your trim and tap **Match white**.
+- **White balance:** when the screen appears, the app balances the frame's white once to the room's
+  light, using the brightest neutral surfaces in view; it doesn't assume your trim is white. To do it
+  by hand: **Settings → Advanced → Pick a white surface by hand**, aim the circle at something white
+  and tap **Match white**.
+- **Mount:** the app picks inside the jamb when there's room in front of the door, or on the face of
+  the trim when the door sits nearly flush. Change it under **Size → Mount**.
 - **Color:** the Color option suggests the standard color closest to your trim. The color wheel picks
   any color, and the eyedropper matches a real one with the camera; either is noted in your order.
 - **Outdoors:** turn on **Settings → Advanced → Outdoor sun shadows** (asks for your location) so shadows fall

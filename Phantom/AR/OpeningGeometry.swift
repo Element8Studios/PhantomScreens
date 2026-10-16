@@ -88,20 +88,6 @@ extension Opening {
 
 /// Pure helpers for depth-based opening detection.
 enum DepthEdge {
-    /// Index of the first sample that is clearly in front of the opening
-    /// (the wall around it), confirmed by the next sample. Samples are depths
-    /// in metres walking outward from the centre; `.infinity` means no reading.
-    static func firstWall(_ samples: [Float], openingDepth: Float, minGap: Float = 0.25) -> Int? {
-        guard samples.count >= 2 else { return nil }
-        let limit = openingDepth - minGap
-        for i in 0..<(samples.count - 1) {
-            let a = samples[i]
-            let b = samples[i + 1]
-            if a > 0.1, a < limit, b > 0.1, b < limit { return i }
-        }
-        return nil
-    }
-
     /// The nearest wall along a walk outward from inside an opening.
     ///
     /// Uses the outer half of the walk to find the "near level" (the wall or

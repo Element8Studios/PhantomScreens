@@ -37,13 +37,14 @@ final class ScreenDoorEntity: Entity {
     private let content = Entity()
     private let staticRoot = Entity()
     private var leaves: [Leaf] = []
-    /// Every part painted in the frame finish, so colour changes repaint in place.
+    /// Every part painted in the frame finish, so color changes repaint in place.
     private var painted: [ModelEntity] = []
+    /// Points on the flat front of the painted hardware (in this entity's
+    /// space), where white balance samples the rendered frame.
+    private(set) var paintSamplePoints: [SIMD3<Float>] = []
+    private var samples: [SIMD3<Float>] = []
 
     // Hardware sizes in metres, from the installed product.
-    static let housingWidth: Float = 0.055      // door housing, across the opening
-    static let housingDepth: Float = 0.06
-    static let housingChamfer: Float = 0.014
     static let windowHousing: Float = 0.065     // window housing height and depth
     static let trackThickness: Float = 0.012
     static let trackDepth: Float = 0.024
@@ -78,6 +79,34 @@ final class ScreenDoorEntity: Entity {
     /// Doors with a housing on both sides.
     static func hasTwoHousings(_ config: ScreenConfig) -> Bool {
         config.product == .double || (config.product == .oversized && config.width > oversizedSingleMax)
+    }
+
+    /// How far the hardware reaches past each edge of the mesh area.
+    struct Reach {
+        var left: Float
+        var right: Float
+        var top: Float
+        var bottom: Float
+    }
+
+    static func reach(for config: ScreenConfig) -> Reach {
+        let track = trackThickness
+        switch config.product {
+        case .single, .sliding, .oversized, .double:
+            let hw = hardware(for: config)
+            if hasTwoHousings(config) {
+                return Reach(left: hw.housingWidth, right: hw.housingWidth, top: track, bottom: track)
+            }
+            // The far side has the closed pull bar and its end clip.
+            let far = hw.barWidth + 0.015
+            return config.side == .left
+                ? Reach(left: hw.housingWidth, right: far, top: track, bottom: track)
+                : Reach(left: far, right: hw.housingWidth, top: track, bottom: track)
+        case .window:
+            return Reach(left: track, right: track, top: windowHousing, bottom: barWidth + 0.005)
+        case .motorized:
+            return Reach(left: sideTrackWidth, right: sideTrackWidth, top: headbox, bottom: 0)
+        }
     }
 
     /// How far the hardware stands proud of the wall when mounted outside.
@@ -226,12 +255,25 @@ final class ScreenDoorEntity: Entity {
         }
         leaves = []
 
-        // Outside mount brings the hardware forward onto the wall face.
-        content.position = SIMD3(0, 0, config.mount == .outside ? Self.mountDepth(for: config) / 2 + 0.01 : 0)
+        // The rectangle is the measured opening.
+        // - Outside (surface) mount: the hardware sits around it, on the
+        //   face of the trim or wall, and the mesh fills the opening.
+        // - Inside mount: everything fits within the jamb, set back just
+        //   behind the trim, so the mesh area is smaller than the opening.
+        let depth = Self.mountDepth(for: config)
+        var w = config.width
+        var h = config.height
+        if config.mount == .inside {
+            let r = Self.reach(for: config)
+            w = max(config.width - r.left - r.right, 0.1)
+            h = max(config.height - r.top - r.bottom, 0.1)
+            content.position = SIMD3((r.left - r.right) / 2, (r.bottom - r.top) / 2, -depth / 2 - 0.005)
+        } else {
+            content.position = SIMD3(0, 0, depth / 2 + 0.01)
+        }
 
         let frame = frameMaterial()
-        let w = config.width
-        let h = config.height
+        samples = []
 
         switch config.product {
         case .single, .sliding:
@@ -250,6 +292,8 @@ final class ScreenDoorEntity: Entity {
             buildMotorized(w: w, h: h, frame: frame)
         }
 
+        paintSamplePoints = samples.map { $0 + content.position }
+
         // Keep the screen where it was: a new product or size rebuilds the
         // hardware but doesn't move the screen.
         layoutLeaves()
@@ -266,7 +310,9 @@ final class ScreenDoorEntity: Entity {
         let trackZ = -hw.housingDepth / 2 + td / 2
         let housing = Self.chamferedMesh(length: h + 2 * tt + 0.01, width: hw.housingWidth,
                                          depth: hw.housingDepth, chamfer: hw.chamfer, vertical: true)
-        staticPart(housing, SIMD3(s * (-w / 2 - hw.housingWidth / 2), 0, 0), frame)
+        let housingX = s * (-w / 2 - hw.housingWidth / 2)
+        staticPart(housing, SIMD3(housingX, 0, 0), frame)
+        samples += [SIMD3(housingX, h * 0.25, hw.housingDepth / 2), SIMD3(housingX, -h * 0.25, hw.housingDepth / 2)]
         // Tracks run from the housing to just past the far edge, where the closed bar latches.
         let trackLength = w + bw + 0.012
         let trackX = s * (-w / 2 + trackLength / 2)
@@ -286,8 +332,11 @@ final class ScreenDoorEntity: Entity {
         let trackZ = -hw.housingDepth / 2 + td / 2
         let housing = Self.chamferedMesh(length: h + 2 * tt + 0.01, width: hw.housingWidth,
                                          depth: hw.housingDepth, chamfer: hw.chamfer, vertical: true)
-        staticPart(housing, SIMD3(-w / 2 - hw.housingWidth / 2, 0, 0), frame)
-        staticPart(housing, SIMD3(w / 2 + hw.housingWidth / 2, 0, 0), frame)
+        for side: Float in [-1, 1] {
+            let x = side * (w / 2 + hw.housingWidth / 2)
+            staticPart(housing, SIMD3(x, 0, 0), frame)
+            samples += [SIMD3(x, h * 0.25, hw.housingDepth / 2), SIMD3(x, -h * 0.25, hw.housingDepth / 2)]
+        }
         staticBox(SIMD3(w, tt, td), SIMD3(0, h / 2 + tt / 2, trackZ), frame)
         staticBox(SIMD3(w, tt, td), SIMD3(0, -h / 2 - tt / 2, trackZ), frame)
         let bar = SIMD2(hw.barWidth, hw.barDepth)
@@ -303,6 +352,7 @@ final class ScreenDoorEntity: Entity {
         let wh = Self.windowHousing
         let trackZ = -wh / 2 + td / 2
         staticPart(Self.windowHousingMesh(length: w + 2 * tt + 0.01), SIMD3(0, h / 2 + wh / 2, 0), frame)
+        samples += [SIMD3(-w * 0.25, h / 2 + wh / 2, wh / 2), SIMD3(w * 0.25, h / 2 + wh / 2, wh / 2)]
         // Side channels run down past the bottom edge, where the closed bar rests.
         let channelLength = h + bw + 0.01
         let channelY = h / 2 - channelLength / 2
@@ -321,6 +371,7 @@ final class ScreenDoorEntity: Entity {
         let headbox = Self.chamferedMesh(length: w + 2 * tw + 0.02, width: hb, depth: hb,
                                          chamfer: Self.headboxChamfer, vertical: false)
         staticPart(headbox, SIMD3(0, h / 2 + hb / 2, 0), frame)
+        samples += [SIMD3(-w * 0.25, h / 2 + hb / 2, hb / 2), SIMD3(w * 0.25, h / 2 + hb / 2, hb / 2)]
         let trackZ = -hb / 2 + tdepth / 2
         staticBox(SIMD3(tw, h, tdepth), SIMD3(-w / 2 - tw / 2, 0, trackZ), frame)
         staticBox(SIMD3(tw, h, tdepth), SIMD3(w / 2 + tw / 2, 0, trackZ), frame)
@@ -406,6 +457,8 @@ final class ScreenDoorEntity: Entity {
 
     private func layoutLeaves() {
         let material = Self.material(for: config.mesh)
+        // Tracks are in this entity's space; the parts are offset by the mount.
+        let offset = content.position
         tracks = []
         for leaf in leaves {
             let bw = leaf.barWidth
@@ -434,16 +487,16 @@ final class ScreenDoorEntity: Entity {
                 leaf.screen.position = SIMD3(screenAt, 0, 0)
                 leaf.bar.position = SIMD3(barAt, 0, 0)
                 leaf.handle.position = SIMD3(barAt, 0, handleZ)
-                tracks.append(DragTrack(start: SIMD3(leaf.origin, 0, 0),
-                                        end: SIMD3(leaf.origin + leaf.direction * leaf.travel, 0, 0),
-                                        bar: SIMD3(barAt, 0, 0)))
+                tracks.append(DragTrack(start: offset + SIMD3(leaf.origin, 0, 0),
+                                        end: offset + SIMD3(leaf.origin + leaf.direction * leaf.travel, 0, 0),
+                                        bar: offset + SIMD3(barAt, 0, 0)))
             } else {
                 leaf.screen.position = SIMD3(0, screenAt, 0)
                 leaf.bar.position = SIMD3(0, barAt, 0)
                 leaf.handle.position = SIMD3(0, barAt, handleZ)
-                tracks.append(DragTrack(start: SIMD3(0, leaf.origin, 0),
-                                        end: SIMD3(0, leaf.origin + leaf.direction * leaf.travel, 0),
-                                        bar: SIMD3(0, barAt, 0)))
+                tracks.append(DragTrack(start: offset + SIMD3(0, leaf.origin, 0),
+                                        end: offset + SIMD3(0, leaf.origin + leaf.direction * leaf.travel, 0),
+                                        bar: offset + SIMD3(0, barAt, 0)))
             }
 
             // Mesh-lock corners follow the top and bottom of the mesh's
@@ -500,13 +553,6 @@ final class ScreenDoorEntity: Entity {
         if housingMeshes.count > 50 { housingMeshes.removeAll() }
         housingMeshes[key] = mesh
         return mesh
-    }
-
-    /// The standard door housing, upright.
-    static func doorHousingMesh(length: Float) -> MeshResource {
-        let hw = DoorHardware.standard
-        return chamferedMesh(length: length, width: hw.housingWidth, depth: hw.housingDepth,
-                             chamfer: hw.chamfer, vertical: true)
     }
 
     /// Window housing: flat back with a rounded front, lying across the top.

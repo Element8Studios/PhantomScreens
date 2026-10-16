@@ -79,6 +79,9 @@ struct CameraModel {
 /// - Closed door: the start point is on the wall plane, so depth can't see
 ///   the opening. ARKit's scene mesh labels door and window surfaces; the
 ///   labelled area around the start point is the opening.
+/// - Still nothing (a door painted like the wall, before ARKit labels it):
+///   the largest rectangle in the camera image around the start point,
+///   projected onto the wall.
 /// Without a known wall, the left and right edges are where depth reaches
 /// the nearest wall level on each side, as before.
 enum DepthOpeningDetector {
@@ -91,6 +94,8 @@ enum DepthOpeningDetector {
         var walls: [WallCandidate] = []
         /// Scene mesh pieces near the camera, with door and window labels.
         var meshes: [ARMeshAnchor] = []
+        /// The camera image, for finding rectangles when depth and labels can't.
+        var image: CVPixelBuffer?
     }
 
     struct Detection {
@@ -164,10 +169,79 @@ enum DepthOpeningDetector {
             method = "door/window labels"
         }
 
+        // A door that blends into the wall: its outline in the image.
+        if opening == nil, let image = input.image {
+            let quads = OpeningDetector.detect(in: image).map { quad in
+                quad.map { point -> CGPoint in
+                    let view = point.applying(camera.toView)
+                    return CGPoint(x: view.x * size.width, y: view.y * size.height)
+                }
+            }
+            opening = rectangleOpening(quads, start: start, camera: camera, wall: wall,
+                                       aimPoint: startPoint, floorY: input.floorY)
+            method = "rectangle in image"
+        }
+
         guard let opening else { return nil }
         let quad = opening.corners.compactMap { camera.project($0) }
         guard quad.count == 4 else { return nil }
         return Detection(opening: opening, quad: quad, method: method, usedWall: wall != nil)
+    }
+
+    /// The largest image rectangle around `start`, projected onto the wall (or
+    /// onto a vertical plane through the point aimed at). Doors usually come
+    /// out as the slab or its trim; inner panels are smaller, so they lose.
+    static func rectangleOpening(_ quads: [[CGPoint]], start: CGPoint, camera: CameraModel,
+                                 wall: WallPlane?, aimPoint: SIMD3<Float>?, floorY: Float?) -> Opening? {
+        let origin = camera.position
+        let plane: WallPlane
+        if let wall {
+            plane = wall
+        } else if let aimPoint {
+            var normal = origin - aimPoint
+            normal.y = 0
+            guard length(normal) > 0.1 else { return nil }
+            plane = WallPlane(point: aimPoint, normal: normalize(normal))
+        } else {
+            return nil
+        }
+
+        var best: (opening: Opening, area: Float)?
+        for quad in quads where quad.count == 4 && contains(quad, start) {
+            let corners = ordered(quad).compactMap { point -> SIMD3<Float>? in
+                plane.intersect(origin: origin, direction: normalize(camera.unproject(point, depth: 1) - origin))
+            }
+            guard corners.count == 4,
+                  var opening = Opening.fit(corners: corners, plumb: true, cameraPosition: origin) else { continue }
+            // Doors reach the floor: snap a bottom edge that's close to it.
+            if let floorY {
+                let top = opening.center.y + opening.height / 2
+                let bottom = opening.center.y - opening.height / 2
+                if abs(bottom - floorY) < 0.12 {
+                    opening.height = top - floorY
+                    opening.center.y = (top + floorY) / 2
+                }
+            }
+            guard (0.45...3.0).contains(opening.width), (0.5...3.2).contains(opening.height) else { continue }
+            let area = opening.width * opening.height
+            if area > (best?.area ?? 0) { best = (opening, area) }
+        }
+        return best?.opening
+    }
+
+    /// Four points as top-left, top-right, bottom-right, bottom-left.
+    static func ordered(_ points: [CGPoint]) -> [CGPoint] {
+        let byY = points.sorted { $0.y < $1.y }
+        let top = byY.prefix(2).sorted { $0.x < $1.x }
+        let bottom = byY.suffix(2).sorted { $0.x < $1.x }
+        return [top[0], top[1], bottom[1], bottom[0]]
+    }
+
+    static func contains(_ polygon: [CGPoint], _ point: CGPoint) -> Bool {
+        let path = CGMutablePath()
+        path.addLines(between: polygon)
+        path.closeSubpath()
+        return path.contains(point)
     }
 
     /// Edges where the walks come back onto a known wall plane.

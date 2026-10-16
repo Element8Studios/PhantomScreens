@@ -18,12 +18,6 @@ final class MeasurementTests: XCTestCase {
         XCTAssertEqual(Length.size(width: 36 * 0.0254, height: 80 * 0.0254, unit: .inches), "36 × 80 in")
     }
 
-    func testSnapping() {
-        let snapped = Length.snapped(0.9115)
-        XCTAssertEqual(Length.eighths(snapped), Length.eighths(0.9115))
-        XCTAssertEqual(snapped / Length.eighth, Float(Length.eighths(0.9115)), accuracy: 1e-3)
-    }
-
     func testProductSuggestion() {
         XCTAssertEqual(Product.suggested(width: 0.9, height: 2.03), .single)
         XCTAssertEqual(Product.suggested(width: 1.8, height: 2.03), .double)
@@ -38,7 +32,7 @@ final class MeasurementTests: XCTestCase {
     @MainActor
     func testQuadOrdering() {
         let points = [CGPoint(x: 280, y: 560), CGPoint(x: 110, y: 170), CGPoint(x: 112, y: 562), CGPoint(x: 281, y: 168)]
-        let ordered = PhantomSession.ordered(points)
+        let ordered = DepthOpeningDetector.ordered(points)
         XCTAssertEqual(ordered[0], CGPoint(x: 110, y: 170))
         XCTAssertEqual(ordered[1], CGPoint(x: 281, y: 168))
         XCTAssertEqual(ordered[2], CGPoint(x: 280, y: 560))

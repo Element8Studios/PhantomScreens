@@ -3,18 +3,6 @@ import simd
 @testable import Phantom
 
 final class DetectionTests: XCTestCase {
-    func testFirstWallFindsJump() {
-        let inf = Float.infinity
-        // Opening ~4 m deep, wall at ~2.5 m starting at index 3.
-        let samples: [Float] = [4.1, 4.0, 3.9, 2.5, 2.5, 2.4]
-        XCTAssertEqual(DepthEdge.firstWall(samples, openingDepth: 4.0), 3)
-        // A single noisy sample isn't enough.
-        XCTAssertEqual(DepthEdge.firstWall([4, 2.5, 4, 4, 2.5, 2.5], openingDepth: 4.0), 4)
-        // No reading through glass, then the wall.
-        XCTAssertEqual(DepthEdge.firstWall([inf, inf, 2.0, 2.0], openingDepth: inf), 2)
-        XCTAssertNil(DepthEdge.firstWall([4, 4, 3.9, 3.95], openingDepth: 4.0))
-    }
-
     func testMedianIgnoresMissing() {
         XCTAssertEqual(DepthEdge.median([3, .infinity, 1, 2]), 2)
         XCTAssertEqual(DepthEdge.median([.infinity]), .infinity)

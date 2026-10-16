@@ -73,11 +73,6 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    var isDenied: Bool {
-        let status = manager.authorizationStatus
-        return status == .denied || status == .restricted
-    }
-
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
             manager.requestLocation()

@@ -35,24 +35,6 @@ struct FinishSwatch: View {
     }
 }
 
-struct SectionLabel: View {
-    let title: String
-    let value: String?
-
-    var body: some View {
-        HStack {
-            Text(title.uppercased())
-                .font(.footnote.weight(.semibold))
-                .tracking(0.6)
-                .foregroundStyle(.secondary)
-            Spacer()
-            if let value {
-                Text(value).font(.footnote.weight(.semibold))
-            }
-        }
-    }
-}
-
 struct DoneButton: View {
     let action: () -> Void
 

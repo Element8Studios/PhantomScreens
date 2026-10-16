@@ -10,6 +10,7 @@ struct SettingsView: View {
     }
 
     @ObservedObject var session: PhantomSession
+    let store: DesignStore
     @AppStorage("units") private var unit: LengthUnit = .inches
     @Environment(\.dismiss) private var dismiss
 
@@ -30,7 +31,7 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink {
-                        AdvancedSettingsView(session: session, closeSettings: { dismiss() })
+                        AdvancedSettingsView(session: session, store: store, closeSettings: { dismiss() })
                     } label: {
                         Label("Advanced", systemImage: "slider.horizontal.3")
                     }
@@ -61,8 +62,9 @@ struct SettingsView: View {
 /// default; customers never need to open it.
 struct AdvancedSettingsView: View {
     @ObservedObject var session: PhantomSession
+    let store: DesignStore
     let closeSettings: () -> Void
-    @AppStorage("onboarded") private var onboarded = false
+    @State private var confirmingReset = false
 
     var body: some View {
         Form {
@@ -96,7 +98,7 @@ struct AdvancedSettingsView: View {
 
             Section {
                 Toggle("Realistic lighting and shadows", isOn: $session.realisticLighting)
-                Toggle("Match white to trim automatically", isOn: $session.autoMatchWhite)
+                Toggle("Match white to the room automatically", isOn: $session.autoMatchWhite)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text("Brightness")
@@ -123,7 +125,7 @@ struct AdvancedSettingsView: View {
             } header: {
                 Text("Realism")
             } footer: {
-                Text("White matching compares the screen's frame with the whitest surfaces around the opening (usually the trim), once, when the screen appears. Brightness adds to it. Outdoor sun shadows uses your location, the time and the compass; turning it on restarts measuring.")
+                Text("When the screen appears, its white is balanced once to the room's light, using the brightest neutral surfaces in view (not assuming the trim is white). Brightness adds to it. Outdoor sun shadows uses your location, the time and the compass; turning it on restarts measuring.")
             }
 
             if session.stage == .placed {
@@ -132,7 +134,7 @@ struct AdvancedSettingsView: View {
                         closeSettings()
                         session.beginPicking(.whiteBalance)
                     } label: {
-                        Label("Pick the trim by hand", systemImage: "eyedropper.halffull")
+                        Label("Pick a white surface by hand", systemImage: "eyedropper.halffull")
                     }
                     Button {
                         session.matchWhiteToTrim()
@@ -144,7 +146,7 @@ struct AdvancedSettingsView: View {
                 } header: {
                     Text("White balance")
                 } footer: {
-                    Text("Picking the trim by hand pauses the automatic checks until Reset.")
+                    Text("Aim at something you know is white. Picking by hand pauses the automatic checks until Reset.")
                 }
             }
 
@@ -152,18 +154,35 @@ struct AdvancedSettingsView: View {
                 Toggle("Debug overlay", isOn: $session.showDebug)
                 Toggle("Keep re-checking white", isOn: $session.keepCheckingWhite)
                 Toggle("Turn off depth after placing", isOn: $session.depthOffWhenPlaced)
-                Button("Show the introduction again") {
-                    onboarded = false
-                    closeSettings()
-                }
+                Button("Reset app…", role: .destructive) { confirmingReset = true }
+                    .confirmationDialog("Reset Phantom Screens?", isPresented: $confirmingReset, titleVisibility: .visible) {
+                        Button("Show the welcome screens again") { reset(settings: false, designs: false) }
+                        Button("Reset all settings") { reset(settings: true, designs: false) }
+                        Button("Reset settings and delete saved designs", role: .destructive) {
+                            reset(settings: true, designs: true)
+                        }
+                    } message: {
+                        Text("Resetting starts measuring again and shows the welcome screens. Your app icon is kept.")
+                    }
             } header: {
                 Text("Developer")
             } footer: {
-                Text("The overlay shows frame rate, how the opening was found and whether a wall plane was used. Keep re-checking white repeats the white match every few seconds as the light changes. Turning off depth after placing saves battery; it takes effect on the next placement.")
+                Text("The overlay shows frame rate, how the opening was found, whether a wall plane was used and indoors or outdoors. Keep re-checking white repeats the white match every few seconds as the light changes. Turning off depth after placing saves battery; it takes effect on the next placement.")
             }
         }
         .navigationTitle("Advanced")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Closes Settings first, so the welcome screens can appear once it's gone.
+    private func reset(settings: Bool, designs: Bool) {
+        closeSettings()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if settings { session.resetApp() }
+            if designs { store.deleteAll() }
+            UserDefaults.standard.set(false, forKey: "onboarded")
+        }
     }
 
     private var placementSection: some View {

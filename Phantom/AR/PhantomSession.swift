@@ -165,7 +165,6 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     private var keyLight: DirectionalLight?
     private var lastLightUpdate = Date.distantPast
     private var lastLevelUpdate = Date()
-    private var lastPreviewUpdate = Date.distantPast
     private var lastCornerTick = Date.distantPast
     private var lastRecovery = Date.distantPast
     private var lastOverlayTick = Date.distantPast
@@ -384,6 +383,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             let elapsed = Date().timeIntervalSince(frameCountStart)
             if elapsed >= 0.5 {
                 live.debug.fps = Int((Double(frameCount) / elapsed).rounded())
+                let outdoors = isOutdoors
+                if live.debug.outdoors != outdoors { live.debug.outdoors = outdoors }
                 frameCount = 0
                 frameCountStart = Date()
             }
@@ -430,14 +431,32 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
+    /// Inside the jamb when there's room for the housing in front of what
+    /// fills the opening (an open doorway, or a door set well back); on the
+    /// face of the trim when a closed door sits nearly flush with it.
+    /// Motorized screens mount on the face of posts and beams.
+    func suggestedMount(for opening: Opening, product: Product) -> Mount {
+        if product == .motorized { return .outside }
+        guard hasLiDAR, let frame = arView.session.currentFrame,
+              let screen = arView.project(opening.center), arView.bounds.contains(screen),
+              let depth = depth(at: screen, in: frame),
+              let point = unproject(screen, depth: depth) else { return .inside }
+        // How far behind the opening's face the surface in it is.
+        let recess = -dot(point - opening.center, opening.normal)
+        if recess > 0.3 { return .inside }   // open: the room or yard beyond
+        var withProduct = config
+        withProduct.product = product
+        let room = ScreenDoorEntity.mountDepth(for: withProduct) + 0.02
+        return recess >= room ? .inside : .outside
+    }
+
     /// The product that fits a measured opening, using the floor (for a
-    /// window sill) and the light level (bright light suggests outdoors).
+    /// window sill) and whether the camera's exposure says it's outdoors.
     func suggestion(for opening: Opening) -> Product {
         let frame = arView.session.currentFrame
         let bottom = opening.center.y - opening.height / 2
         let sill = frame.flatMap { floorHeight($0) }.map { bottom - $0 }
-        let outdoors = (frame?.lightEstimate?.ambientIntensity ?? 0) > 2500
-        return Product.suggested(width: opening.width, height: opening.height, sill: sill, outdoors: outdoors)
+        return Product.suggested(width: opening.width, height: opening.height, sill: sill, outdoors: isOutdoors)
     }
 
     private func runDetectionIfDue() {
@@ -482,7 +501,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
                 }
             }
             let input = DepthOpeningDetector.Input(depth: depth, camera: camera, start: start,
-                                                   floorY: floorHeight(frame), walls: walls, meshes: meshes)
+                                                   floorY: floorHeight(frame), walls: walls, meshes: meshes,
+                                                   image: frame.capturedImage)
             visionQueue.async { [weak self] in
                 let found = DepthOpeningDetector.detect(input)
                 Task { @MainActor [weak self] in
@@ -531,8 +551,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         let camera = arView.cameraTransform.translation
         var best: (opening: Opening, quad: [CGPoint], distance: Float)?
         for points in candidates.prefix(4) where points.count == 4 {
-            let quad = Self.ordered(points)
-            if targetPoint != nil, !Self.quad(quad, contains: point) { continue }
+            let quad = DepthOpeningDetector.ordered(points)
+            if targetPoint != nil, !DepthOpeningDetector.contains(quad, point) { continue }
             guard let opening = reconstruct(quad) else { continue }
             let distance = simd_distance(opening.center, camera)
             if distance < (best?.distance ?? .infinity) { best = (opening, quad, distance) }
@@ -542,13 +562,6 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         } else {
             loseDetection()
         }
-    }
-
-    static func quad(_ quad: [CGPoint], contains point: CGPoint) -> Bool {
-        let path = CGMutablePath()
-        path.addLines(between: quad)
-        path.closeSubpath()
-        return path.contains(point)
     }
 
     // MARK: - Tap to target
@@ -617,14 +630,6 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             detectedOpening = nil
             isLocked = false
         }
-    }
-
-    /// Sorts four screen points into top-left, top-right, bottom-right, bottom-left.
-    static func ordered(_ points: [CGPoint]) -> [CGPoint] {
-        let byY = points.sorted { $0.y < $1.y }
-        let top = byY.prefix(2).sorted { $0.x < $1.x }
-        let bottom = byY.suffix(2).sorted { $0.x < $1.x }
-        return [top[0], top[1], bottom[1], bottom[0]]
     }
 
     /// Turns a screen-space quad into a measured opening on the wall.
@@ -817,7 +822,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         newConfig.height = min(max(opening.height, ScreenConfig.heightRange.lowerBound), ScreenConfig.heightRange.upperBound)
         let suggested = suggestion(for: opening)
         newConfig.product = suggested
-        newConfig.mount = suggested == .motorized ? .outside : .inside
+        newConfig.mount = suggestedMount(for: opening, product: suggested)
         suggestedProduct = suggested
         newConfig.extent = 0
         isRefitting = true
@@ -1263,6 +1268,35 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
     }
 
+    /// Developer reset: every setting back to its default, white matching
+    /// cleared, the saved settings and quote details wiped, and back to
+    /// finding an opening. (The welcome screens are shown by the caller.)
+    func resetApp() {
+        remeasure()
+        resetWhiteMatch()
+        config = ScreenConfig()
+        if sunMode { sunMode = false }
+        autoDetect = true
+        tapToTarget = false
+        showSurfaces = false
+        showDiagonal = true
+        showRectangle = true
+        realisticLighting = true
+        occlusion = true
+        keepPlumb = true
+        snapCorners = true
+        brightness = 0
+        autoMatchWhite = true
+        keepCheckingWhite = false
+        showDebug = false
+        depthOffWhenPlaced = false
+        gloss = .gloss
+        sunExposure = .auto
+        if let id = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: id)
+        }
+    }
+
     /// A reduced picture of the camera view with the screen, for the review
     /// page. Not saved to Photos.
     func previewSnapshot() async -> UIImage? {
@@ -1322,6 +1356,7 @@ final class DebugLive: ObservableObject {
     @Published var fps = 0
     @Published var method = "—"
     @Published var wall = false
+    @Published var outdoors = false
 }
 
 @MainActor
