@@ -1,0 +1,7 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+# Shell scripts and YAML always keep Unix line endings, even on Windows,
+# so they run on the Mac build machines.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
