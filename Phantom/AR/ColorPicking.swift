@@ -37,7 +37,7 @@ extension PhantomSession {
             newConfig.customColorHex = color.hexString
             newConfig.customMatchedToTrim = true
             config = newConfig
-            showToast("Custom color \(color.hexString) taken from your trim.", duration: 3)
+            showToast("Frame color set to \(color.hexString). Your expert color-matches it on site.", duration: 3)
         }
         pickerPurpose = nil
         live.picker.color = nil

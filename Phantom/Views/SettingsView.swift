@@ -123,7 +123,7 @@ struct AdvancedSettingsView: View {
             } header: {
                 Text("Realism")
             } footer: {
-                Text("White matching compares the screen's frame with your real trim when the screen appears, then checks again every few seconds. Brightness adds to it. Outdoor sun shadows uses your location, the time and the compass; turning it on restarts measuring.")
+                Text("White matching compares the screen's frame with the whitest surfaces around the opening (usually the trim), once, when the screen appears. Brightness adds to it. Outdoor sun shadows uses your location, the time and the compass; turning it on restarts measuring.")
             }
 
             if session.stage == .placed {
@@ -150,6 +150,7 @@ struct AdvancedSettingsView: View {
 
             Section {
                 Toggle("Debug overlay", isOn: $session.showDebug)
+                Toggle("Keep re-checking white", isOn: $session.keepCheckingWhite)
                 Toggle("Turn off depth after placing", isOn: $session.depthOffWhenPlaced)
                 Button("Show the introduction again") {
                     onboarded = false
@@ -158,7 +159,7 @@ struct AdvancedSettingsView: View {
             } header: {
                 Text("Developer")
             } footer: {
-                Text("The overlay shows frame rate, how the opening was found and whether a wall plane was used. Turning off depth after placing saves battery; it takes effect on the next placement.")
+                Text("The overlay shows frame rate, how the opening was found and whether a wall plane was used. Keep re-checking white repeats the white match every few seconds as the light changes. Turning off depth after placing saves battery; it takes effect on the next placement.")
             }
         }
         .navigationTitle("Advanced")

@@ -101,7 +101,8 @@ struct HelpList: View {
             Section("Your screen") {
                 Label("Drag the pull handle (or the bottom bar of a motorized screen) to open and close it.", systemImage: "hand.draw")
                 Label("Hold the compare button to see the opening without it.", systemImage: "square.split.2x1")
-                Label("Options has everything already chosen for you. Change any step, then tap Review Your Order.", systemImage: "slider.horizontal.3")
+                Label("Everything starts chosen for you. Tap a chip above the toolbar to change that option, or press Options and slide to one.", systemImage: "slider.horizontal.3")
+                Label("In Color, the eyedropper matches any real color with the camera.", systemImage: "eyedropper")
                 Label("Colors on screen are approximate. Your local expert brings real swatches.", systemImage: "paintpalette")
             }
         }

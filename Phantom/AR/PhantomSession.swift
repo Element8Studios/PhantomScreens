@@ -132,6 +132,11 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     }
     let locationProvider = LocationProvider()
     var usingSunLight = false
+    /// Developer: keep re-checking white every few seconds after the first
+    /// match. Off: white is matched once, when the screen appears.
+    @Published var keepCheckingWhite = PhantomSession.stored("keepCheckingWhite", false) {
+        didSet { PhantomSession.store(keepCheckingWhite, "keepCheckingWhite") }
+    }
     /// Developer: frame rate, detection method and wall plane on screen.
     @Published var showDebug = PhantomSession.stored("showDebug", false) {
         didSet { PhantomSession.store(showDebug, "showDebug") }

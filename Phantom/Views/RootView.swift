@@ -8,6 +8,8 @@ struct RootView: View {
     @AppStorage("units") private var unit: LengthUnit = .inches
     @AppStorage("onboarded") private var onboarded = false
     @State private var flashOpacity = 0.0
+    /// The one step the Options sheet opens on, or nil for all of them.
+    @State private var optionsFocus: BuildSheet.Step?
 
     enum ActiveSheet: String, Identifiable {
         case options, review, designs, help, settings
@@ -65,7 +67,10 @@ struct RootView: View {
                 if let purpose = session.pickerPurpose {
                     ColorPickerOverlay(session: session, live: session.live.picker, purpose: purpose)
                 } else {
-                    PlacedControls(session: session, unit: unit, sheet: $sheet)
+                    PlacedControls(session: session, unit: unit, sheet: $sheet) { step in
+                        optionsFocus = step
+                        sheet = .options
+                    }
                 }
             }
 
@@ -98,9 +103,12 @@ struct RootView: View {
         .sheet(item: $sheet) { item in
             switch item {
             case .options:
-                BuildSheet(session: session, trim: session.live.trim, unit: $unit) { sheet = .review }
+                BuildSheet(session: session, trim: session.live.trim, unit: $unit, focus: optionsFocus) { sheet = .review }
             case .review:
-                ReviewView(session: session, store: store, unit: unit) { sheet = .options }
+                ReviewView(session: session, store: store, unit: unit) {
+                    optionsFocus = nil
+                    sheet = .options
+                }
             case .designs:
                 DesignsView(store: store)
             case .help:
@@ -331,6 +339,13 @@ private struct PlacedControls: View {
     @ObservedObject var session: PhantomSession
     let unit: LengthUnit
     @Binding var sheet: RootView.ActiveSheet?
+    /// Opens the Options sheet on one step, or on all of them (nil).
+    let openOptions: (BuildSheet.Step?) -> Void
+    @State private var fanOpen = false
+    @State private var hovered: BuildSheet.Step?
+    @State private var fanCenter: CGPoint = .zero
+
+    private var quickOptions: [QuickOption] { QuickOption.options(for: session.config) }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -405,6 +420,19 @@ private struct PlacedControls: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 12)
+        .overlay {
+            if fanOpen {
+                QuickOptionsFan(options: quickOptions, center: fanCenter, hovered: hovered) { step in
+                    fanOpen = false
+                    openOptions(step)
+                } close: {
+                    withAnimation(.smooth(duration: 0.2)) { fanOpen = false }
+                }
+            }
+        }
+        .coordinateSpace(.named("placed"))
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: fanOpen)
+        .animation(.smooth(duration: 0.15), value: hovered)
     }
 
     private var placedBottom: some View {
@@ -413,39 +441,13 @@ private struct PlacedControls: View {
                 MotorControls(session: session)
             }
             HStack(spacing: 10) {
-                Button { sheet = .options } label: {
-                    HStack(spacing: 10) {
-                        Circle()
-                            .fill(session.config.frameColor)
-                            .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 0.5))
-                            .frame(width: 26, height: 26)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(session.config.product.title)
-                                .font(.subheadline.weight(.semibold))
-                            Text(session.config.summary)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.75))
-                        }
-                        .lineLimit(1)
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.bold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.leading, 8)
-                    .padding(.trailing, 12)
-                    .frame(height: 52)
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .glass(Capsule(), interactive: true)
-                .accessibilityHint("Opens the screen options")
-
+                SummaryChips(config: session.config, unit: unit) { openOptions($0) }
                 Button { sheet = .review } label: {
                     Text("Review")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.black)
                         .padding(.horizontal, 18)
-                        .frame(height: 52)
+                        .frame(height: 44)
                         .background(.white, in: Capsule())
                 }
                 .buttonStyle(.plain)
@@ -457,11 +459,238 @@ private struct PlacedControls: View {
                         .frame(maxWidth: .infinity)
                     ShutterButton(systemName: nil, title: "Photo") { session.capturePhoto() }
                         .frame(maxWidth: .infinity)
-                    ToolbarButton(systemName: "slider.horizontal.3", title: "Options") { sheet = .options }
+                    OptionsButton(fanOpen: $fanOpen, hovered: $hovered, center: $fanCenter,
+                                  options: quickOptions) { openOptions($0) }
                         .frame(maxWidth: .infinity)
                 }
             }
         }
+    }
+}
+
+// MARK: - Quick options
+
+/// One of the round buttons that fan out of the Options button.
+struct QuickOption: Identifiable {
+    let step: BuildSheet.Step
+    let symbol: String
+    let title: String
+    var id: BuildSheet.Step { step }
+
+    static func options(for config: ScreenConfig) -> [QuickOption] {
+        var list = [QuickOption(step: .color, symbol: "paintpalette", title: "Color"),
+                    QuickOption(step: .mesh, symbol: "square.grid.3x3", title: "Mesh")]
+        if config.product.offersClosure {
+            list.append(QuickOption(step: .closure, symbol: "hand.raised", title: "Handle"))
+        }
+        if config.product.isMotorized {
+            list.append(QuickOption(step: .control, symbol: "dot.radiowaves.left.and.right", title: "Control"))
+        }
+        list.append(QuickOption(step: .measurement, symbol: "ruler", title: "Size"))
+        list.append(QuickOption(step: .type, symbol: config.product.symbol, title: "Type"))
+        return list
+    }
+
+    /// Centres of the option buttons: an arc above and to the left of the
+    /// Options button, from beside it to straight above it.
+    static func positions(count: Int, around center: CGPoint) -> [CGPoint] {
+        let radius: CGFloat = 122
+        return (0..<count).map { index in
+            let t = count > 1 ? CGFloat(index) / CGFloat(count - 1) : 0
+            let angle = (170 - t * 90) * CGFloat.pi / 180
+            return CGPoint(x: center.x + radius * cos(angle), y: center.y - radius * sin(angle))
+        }
+    }
+}
+
+private struct OptionsCenterKey: PreferenceKey {
+    static let defaultValue: CGPoint = .zero
+    static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) { value = nextValue() }
+}
+
+/// The Options button. Tap it to fan out the quick options, then tap one;
+/// or press, slide to an option and let go. Tapping again closes the fan.
+private struct OptionsButton: View {
+    @Binding var fanOpen: Bool
+    @Binding var hovered: BuildSheet.Step?
+    @Binding var center: CGPoint
+    let options: [QuickOption]
+    let choose: (BuildSheet.Step?) -> Void
+    @State private var pressing = false
+    @State private var wasOpen = false
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: fanOpen ? "xmark" : "slider.horizontal.3")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .contentShape(Circle())
+                .glass(Circle(), interactive: true)
+                .background(GeometryReader { geometry in
+                    let frame = geometry.frame(in: .named("placed"))
+                    Color.clear.preference(key: OptionsCenterKey.self, value: CGPoint(x: frame.midX, y: frame.midY))
+                })
+                .gesture(drag)
+            Text("Options")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.5), radius: 2)
+        }
+        .onPreferenceChange(OptionsCenterKey.self) { center = $0 }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Options")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { choose(nil) }
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("placed"))
+            .onChanged { value in
+                if !pressing {
+                    pressing = true
+                    wasOpen = fanOpen
+                    if !fanOpen {
+                        fanOpen = true
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                }
+                let moved = hypot(value.translation.width, value.translation.height) > 12
+                let next = moved ? option(at: value.location) : nil
+                if next != hovered {
+                    hovered = next
+                    if next != nil { UISelectionFeedbackGenerator().selectionChanged() }
+                }
+            }
+            .onEnded { value in
+                pressing = false
+                let moved = hypot(value.translation.width, value.translation.height) > 12
+                if let pick = hovered {
+                    hovered = nil
+                    fanOpen = false
+                    choose(pick)
+                } else if moved || wasOpen {
+                    // Slid off without choosing, or a second tap: close.
+                    fanOpen = false
+                }
+                // A plain tap leaves the fan open for a tap on an option.
+            }
+    }
+
+    private func option(at point: CGPoint) -> BuildSheet.Step? {
+        let spots = QuickOption.positions(count: options.count, around: center)
+        var best: (step: BuildSheet.Step, distance: CGFloat)?
+        for (option, spot) in zip(options, spots) {
+            let distance = hypot(spot.x - point.x, spot.y - point.y)
+            if distance < 44, distance < (best?.distance ?? .infinity) { best = (option.step, distance) }
+        }
+        return best?.step
+    }
+}
+
+/// The fanned-out option buttons over a dimmed background.
+private struct QuickOptionsFan: View {
+    let options: [QuickOption]
+    let center: CGPoint
+    let hovered: BuildSheet.Step?
+    let choose: (BuildSheet.Step) -> Void
+    let close: () -> Void
+
+    var body: some View {
+        let spots = QuickOption.positions(count: options.count, around: center)
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture(perform: close)
+                .accessibilityLabel("Close options")
+                .accessibilityAddTraits(.isButton)
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index]
+                let lit = hovered == option.step
+                Button { choose(option.step) } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: option.symbol)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(lit ? Color.phantomNavy : Color.white)
+                            .frame(width: 54, height: 54)
+                            .background(lit ? Color.phantomCyan : Color.clear, in: Circle())
+                            .glass(Circle(), interactive: true)
+                        Text(option.title)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.6), radius: 2)
+                    }
+                    .scaleEffect(lit ? 1.15 : 1)
+                }
+                .buttonStyle(.plain)
+                .position(x: spots[index].x, y: spots[index].y + 9)
+                .transition(.scale(scale: 0.3).combined(with: .opacity))
+                .accessibilityLabel(option.title)
+            }
+        }
+    }
+}
+
+/// The current choices as chips; each opens its own option step.
+private struct SummaryChips: View {
+    let config: ScreenConfig
+    let unit: LengthUnit
+    let open: (BuildSheet.Step) -> Void
+
+    private struct Chip: Identifiable {
+        let step: BuildSheet.Step
+        let symbol: String?
+        let text: String
+        var id: BuildSheet.Step { step }
+    }
+
+    private var chips: [Chip] {
+        var list = [Chip(step: .color, symbol: nil, text: config.colorTitle),
+                    Chip(step: .mesh, symbol: "square.grid.3x3", text: config.mesh.title)]
+        if config.product.offersClosure {
+            list.append(Chip(step: .closure, symbol: "hand.raised", text: config.closure.shortTitle))
+        }
+        if config.product.isMotorized {
+            list.append(Chip(step: .control, symbol: "dot.radiowaves.left.and.right", text: config.motorControl.title))
+        }
+        let size = Length.size(width: config.width, height: config.height, unit: unit)
+        list.append(Chip(step: .measurement, symbol: "ruler", text: config.fitsProduct ? size : size + " · custom"))
+        list.append(Chip(step: .type, symbol: config.product.symbol,
+                         text: config.product.shortTitle + (config.hasMeshLock ? " · Mesh Lock" : "")))
+        return list
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(chips) { chip in
+                    Button { open(chip.step) } label: {
+                        HStack(spacing: 6) {
+                            if chip.step == .color {
+                                Circle()
+                                    .fill(config.frameColor)
+                                    .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 0.5))
+                                    .frame(width: 16, height: 16)
+                            } else if let symbol = chip.symbol {
+                                Image(systemName: symbol).font(.caption.weight(.semibold))
+                            }
+                            Text(chip.text)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .frame(height: 40)
+                        .glass(Capsule(), interactive: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Change this option")
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .scrollClipDisabled()
     }
 }
 
@@ -658,13 +887,13 @@ private struct ColorPickerOverlay: View {
     let purpose: PickerPurpose
 
     private var title: String {
-        purpose == .whiteBalance ? "White balance" : "Match my trim color"
+        purpose == .whiteBalance ? "White balance" : "Match a color"
     }
 
     private var instruction: String {
         purpose == .whiteBalance
             ? "Aim at your white trim, with the screen's frame still in view."
-            : "Aim at your trim. Its color becomes the custom frame color."
+            : "Aim the circle at any color, like your trim. It becomes the frame color."
     }
 
     var body: some View {

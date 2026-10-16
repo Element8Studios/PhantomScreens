@@ -11,7 +11,7 @@ workflows:
       xcode: latest
     scripts:
       - name: Build unsigned IPA
-        script: BUILD=$BUILD_NUMBER ./scripts/build-ipa.sh
+        script: BUILD=$BUILD_NUMBER bash scripts/build-ipa.sh
     artifacts:
       - build/ipa/*.ipa
       - build/build.log
@@ -24,6 +24,6 @@ workflows:
       xcode: latest
     scripts:
       - name: Unit tests
-        script: ./scripts/test.sh
+        script: bash scripts/test.sh
     artifacts:
       - build/test.log

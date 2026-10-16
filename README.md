@@ -16,19 +16,21 @@ on iOS 17–25).
 2. **Place.** The app suggests the product from the size, the sill height and the light:
    Single, Sliding, Double-French or Oversized Door Screen, Window Screen, or a Motorized
    Screen for porches and patios. It fades in once ARKit is tracking it and matches the
-   frame's white to the real trim, then keeps checking as the light changes.
+   frame's white once to the whitest surfaces around the opening (usually the trim).
 3. **Open and close it.** Drag the pull handle (or the bottom bar of a motorized screen,
    which also has ▲ ■ ▼ controls). Touch a corner of the screen and drag it to fine-tune.
    Hold **compare** to hide it.
-4. **Options** follows phantomscreens.com step by step, with everything pre-chosen:
+4. **Options** follows phantomscreens.com step by step, with everything pre-chosen. Chips
+   above the toolbar show each current choice and open just that step; the Options button
+   fans out quick buttons (tap, or press and slide):
    - **Screen type**: Door Screen or Door Screen with Mesh Lock, and the retract side.
    - **Measurement**: the measured size and the matching height and width bands.
    - **Closure**: Latching Handle (preselected), Latching Handle with Latch Stop, Magnet Handle.
    - **Control** (motorized): remote, wall switch or smart home.
    - **Mesh**: Insect, or a custom mesh (pet, sun & heat, privacy).
-   - **Color**: the ten standard colors, wood grain, a custom color (pick it or match your
-     trim with the camera) or "decide later". The closest standard color to your trim is
-     suggested.
+   - **Color**: the ten standard colors, wood grain, a custom color (pick it, or tap the
+     eyedropper to match any real color with the camera) or "decide later". The closest
+     standard color to your trim is suggested.
 
    Options say **Included** or **Additional cost**; there are no prices, since they vary by
    region.

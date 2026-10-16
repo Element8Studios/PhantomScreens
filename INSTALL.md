@@ -20,7 +20,7 @@ Builds never run automatically. Start one when you want a new version, in any of
 1. Open the repository on GitHub → **Actions** → **Build** → **Run workflow**.
    Leave **Also run unit tests** off unless you need them (they take about four times longer).
 2. When the run has a green check, open it and download the artifact named like
-   **PhantomScreens-v3.0-build01**. Unzip it to get the **.ipa**.
+   **Phantom Screens v3.0 build 01**. Unzip it to get the **.ipa**.
 
 **Codemagic** (a hosted Mac with free monthly minutes; no Mac needed)
 1. Sign in at codemagic.io with GitHub and add this repository. It reads `codemagic.yaml`.
@@ -79,8 +79,10 @@ The build number shows in the app under **Settings → Version**.
    If it doesn't find the opening, tap it on screen, or tap **Corners** and mark two opposite corners.
 3. The app picks the product from the size (single, double-French, oversized, window or motorized)
    and slides the screen partly open. **Drag the pull handle** (or use ▲ ■ ▼ on a motorized screen).
-4. **Options** has every step already chosen for you: screen type, measurement, closure, mesh and color.
-   Tap **Edit** on any step to change it.
+4. Everything is already chosen for you. To change something:
+   - tap a chip above the toolbar (color, mesh, handle, size, type) to open just that option, or
+   - tap **Options** to fan out quick buttons, or press **Options** and slide to one and let go.
+   In **Color**, the eyedropper matches any real color with the camera.
 5. Hold the **compare** button (top right) to see the opening without the screen.
 6. **Photo** saves a picture. **Review** shows your order and sends it to a local Phantom expert,
    who quotes the price for your region.
@@ -114,11 +116,11 @@ A paid Apple Developer account ($99/year) makes it last a year instead.
 
 - If it keeps finding the wrong opening, tap inside the one you want. To search only after a tap,
   turn on **Settings → Advanced → Wait for a tap before finding**.
-- **White balance:** the app matches the frame's white to your trim automatically when the screen
-  appears, and keeps checking quietly as the light changes. To do it by hand:
+- **White balance:** when the screen appears, the app matches the frame's white once to the whitest
+  surfaces around the opening (usually the trim). To do it by hand:
   **Settings → Advanced → Pick the trim by hand**, aim the circle at your trim and tap **Match white**.
-- **Color:** **Options → Color** suggests the standard color closest to your trim. **Custom Color**
-  lets you pick any color or match your trim with the camera; it's noted in your order.
+- **Color:** the Color option suggests the standard color closest to your trim. The color wheel picks
+  any color, and the eyedropper matches a real one with the camera; either is noted in your order.
 - **Outdoors:** turn on **Settings → Advanced → Outdoor sun shadows** (asks for your location) so shadows fall
   the same way as the real sun. Choose **In shade** if the opening is under a porch roof.
 

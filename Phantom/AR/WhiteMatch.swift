@@ -3,16 +3,17 @@ import UIKit
 
 /// Matches the rendered frame to the real trim around the opening.
 ///
-/// Takes a snapshot of the view (camera image plus the rendered screen),
-/// samples the real trim just outside the opening and the rendered frame on
-/// its housing, then nudges the virtual exposure and colour gain until they
-/// agree. A few rounds converge because each one measures the actual result.
-/// Corrections ease in over a fraction of a second rather than jumping.
+/// Takes a snapshot of the view (camera image plus the rendered screen) and
+/// samples a ring of points just outside the opening and its hardware. The
+/// samples closest to white (bright and neutral: the trim, not the wall's
+/// shadows or the floor) are averaged as the reference white. The rendered
+/// frame is sampled on its housing, then the virtual exposure and color gain
+/// are nudged until the two agree. A few rounds converge because each one
+/// measures the actual result, and corrections ease in rather than jump.
 ///
-/// With "Auto-match white" on, this runs once the screen has faded in and
-/// then quietly every few seconds, correcting only when the room's light has
-/// clearly changed. Picking the trim by hand pauses the automatic checks
-/// until Reset or the next placement.
+/// With "Match white to trim automatically" on, this runs once, when the
+/// screen has faded in. Settings → Advanced → Keep re-checking white repeats
+/// it every few seconds (off by default, since it can visibly shift).
 extension PhantomSession {
     /// - Parameters:
     ///   - trimPoint: a screen point on the trim picked by the user; nil
@@ -80,7 +81,7 @@ extension PhantomSession {
     /// Called every frame while a screen is placed; starts a quiet check
     /// every few seconds when nothing else is going on.
     func checkWhiteIfDue() {
-        guard autoMatchWhite, isRevealed, !whitePickedByUser, !isMatchingWhite, !isCheckingWhite,
+        guard autoMatchWhite, keepCheckingWhite, isRevealed, !whitePickedByUser, !isMatchingWhite, !isCheckingWhite,
               !menuOpen, !comparing, !isAdjusting, !isDraggingCorner, pickerPurpose == nil,
               Date().timeIntervalSince(lastWhiteCheck) > whiteCheckInterval else { return }
         matchWhiteToTrim(announce: false, background: true)
@@ -114,14 +115,12 @@ extension PhantomSession {
         let scale = CGFloat(cg.width) / max(arView.bounds.width, 1)
         // Sample the painted hardware on its flat front face: the door
         // housing on the retract side (both sides for doubles), or the
-        // housing or headbox across the top. Sample the real trim just past
-        // the thin tracks or side tracks, where no hardware covers it.
+        // housing or headbox across the top.
         let hw = o.width / 2
         let hh = o.height / 2
         let hardware = ScreenDoorEntity.hardware(for: config)
         let mountOffset: Float = config.mount == .outside ? ScreenDoorEntity.mountDepth(for: config) / 2 + 0.01 : 0
         let doorFront = o.normal * (hardware.housingDepth / 2 + mountOffset)
-        let pastTrack: Float = ScreenDoorEntity.trackThickness + 0.033
         let top = o.center + o.up * hh
 
         func housingPoints(side: Float) -> [SIMD3<Float>] {
@@ -134,28 +133,50 @@ extension PhantomSession {
             return [center - o.right * (o.width * 0.25), center + o.right * (o.width * 0.25)]
         }
 
+        // How far the hardware reaches past each edge of the opening, so the
+        // real surroundings are sampled beyond it: left, right, top, bottom
+        // (nil: don't sample that side; below a door is floor, not trim).
+        let reach: (left: Float, right: Float, top: Float, bottom: Float?)
         var framePoints: [SIMD3<Float>] = []
-        var trimPoints: [SIMD3<Float>] = []
         switch config.product {
         case .single, .sliding, .oversized, .double:
+            let track = ScreenDoorEntity.trackThickness
             if ScreenDoorEntity.hasTwoHousings(config) {
                 framePoints = housingPoints(side: -1) + housingPoints(side: 1)
+                reach = (left: hardware.housingWidth, right: hardware.housingWidth, top: track, bottom: nil)
             } else {
                 let s: Float = config.side == .left ? -1 : 1
                 framePoints = housingPoints(side: s)
-                // Far side: past the closed pull bar and end clip.
-                trimPoints.append(o.center - o.right * s * (hw + hardware.barWidth + 0.03))
+                // The far side has the closed pull bar and end clip.
+                let far = hardware.barWidth + 0.03
+                if s < 0 {
+                    reach = (left: hardware.housingWidth, right: far, top: track, bottom: nil)
+                } else {
+                    reach = (left: far, right: hardware.housingWidth, top: track, bottom: nil)
+                }
             }
-            trimPoints.append(top + o.up * pastTrack)
         case .window:
             framePoints = topPoints(size: ScreenDoorEntity.windowHousing)
-            trimPoints.append(o.center - o.right * (hw + pastTrack))
-            trimPoints.append(o.center + o.right * (hw + pastTrack))
+            let track = ScreenDoorEntity.trackThickness
+            reach = (left: track, right: track, top: ScreenDoorEntity.windowHousing, bottom: ScreenDoorEntity.barWidth)
         case .motorized:
             framePoints = topPoints(size: ScreenDoorEntity.headbox)
-            let past = ScreenDoorEntity.sideTrackWidth + 0.03
-            trimPoints.append(o.center - o.right * (hw + past))
-            trimPoints.append(o.center + o.right * (hw + past))
+            let track = ScreenDoorEntity.sideTrackWidth
+            reach = (left: track, right: track, top: ScreenDoorEntity.headbox, bottom: nil)
+        }
+
+        // A ring of points around the opening, just past the hardware.
+        var trimPoints: [SIMD3<Float>] = []
+        let along: [Float] = [-0.8, -0.4, 0, 0.4, 0.8]
+        for gap: Float in [0.03, 0.07, 0.11] {
+            for t in along {
+                trimPoints.append(o.center - o.right * (hw + reach.left + gap) + o.up * (t * hh))
+                trimPoints.append(o.center + o.right * (hw + reach.right + gap) + o.up * (t * hh))
+                trimPoints.append(top + o.up * (reach.top + gap) + o.right * (t * hw))
+                if let bottom = reach.bottom {
+                    trimPoints.append(o.center - o.up * (hh + bottom + gap) + o.right * (t * hw))
+                }
+            }
         }
 
         func samples(_ points: [SIMD3<Float>]) -> [SIMD3<Float>] {
@@ -169,11 +190,11 @@ extension PhantomSession {
         if let trimPoint {
             trim = [Self.averageLinear(cg, at: CGPoint(x: trimPoint.x * scale, y: trimPoint.y * scale))].compactMap { $0 }
         } else {
-            trim = samples(trimPoints)
+            trim = Self.whitest(samples(trimPoints))
         }
         let frame = samples(framePoints)
         guard !trim.isEmpty, frame.count >= 2 else { return nil }
-        let t = Self.median(trim)
+        let t = trimPoint == nil ? Self.mean(trim) : Self.median(trim)
         let f = Self.median(frame)
         guard Self.luma(t) > 0.02, Self.luma(f) > 0.005 else { return nil }
         return (t, f)
@@ -211,6 +232,24 @@ extension PhantomSession {
 
     static func luma(_ c: SIMD3<Float>) -> Float {
         0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z
+    }
+
+    /// The samples closest to white: bright and neutral. Walls, shadows,
+    /// floors and furniture around the opening drop out; the trim stays.
+    static func whitest(_ samples: [SIMD3<Float>]) -> [SIMD3<Float>] {
+        func whiteness(_ c: SIMD3<Float>) -> Float {
+            let high = max(c.x, max(c.y, c.z))
+            let low = min(c.x, min(c.y, c.z))
+            let spread = high > 1e-4 ? (high - low) / high : 1
+            return luma(c) * max(0, 1 - spread)
+        }
+        let ranked = samples.sorted { whiteness($0) > whiteness($1) }
+        let keep = max(3, ranked.count * 3 / 10)
+        return Array(ranked.prefix(keep))
+    }
+
+    static func mean(_ values: [SIMD3<Float>]) -> SIMD3<Float> {
+        values.reduce(SIMD3<Float>.zero, +) / Float(max(values.count, 1))
     }
 
     static func median(_ values: [SIMD3<Float>]) -> SIMD3<Float> {

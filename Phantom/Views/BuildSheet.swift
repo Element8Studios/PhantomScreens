@@ -3,16 +3,28 @@ import SwiftUI
 /// "Build your screen": the website's steps, with every choice already made
 /// from the measurement and the most popular options, so the customer only
 /// changes what they want to. The screen in AR updates live behind the sheet.
+///
+/// Opened on one step (from the quick-options buttons or a summary chip), it
+/// shows just that step, with a link to all the options.
 struct BuildSheet: View {
     @ObservedObject var session: PhantomSession
     @ObservedObject var trim: TrimLive
     @Binding var unit: LengthUnit
+    /// The one step to show, or nil for all of them.
+    let focus: Step?
     let onReview: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var open: Step?
+    @State private var showAll = false
 
     enum Step: Hashable {
         case type, measurement, closure, control, mesh, color
+    }
+
+    /// The step shown on its own, if any.
+    private var focused: Step? {
+        guard !showAll, let focus, steps.contains(focus) else { return nil }
+        return focus
     }
 
     private var config: ScreenConfig { session.config }
@@ -27,50 +39,85 @@ struct BuildSheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("You are customizing")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(config.product.title)
-                            .font(.title3.bold())
-                    }
-                    Spacer()
-                    DoneButton { dismiss() }
-                }
-                .padding(.bottom, 8)
-
-                ForEach(Array(steps.enumerated()), id: \.element) { index, step in
-                    StepSection(number: index + 1, title: title(step), summary: summary(step),
-                                isOpen: open == step) {
-                        withAnimation(.smooth(duration: 0.25)) { open = open == step ? nil : step }
-                    } content: {
-                        content(step)
-                    }
-                    Divider().overlay(Color.white.opacity(0.12))
-                }
-
-                Button(action: onReview) {
-                    Text("Review Your Order")
-                        .font(.headline)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .background(.white, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 20)
-                Text("Everything above was chosen for you from your measurement. Tap Edit on any step to change it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 8)
+            if let step = focused {
+                focusedBody(step)
+            } else {
+                allSteps
             }
-            .padding(20)
         }
         .presentationDetents([.medium, .large])
         .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         .presentationDragIndicator(.visible)
         .animation(.smooth(duration: 0.2), value: session.config)
+    }
+
+    /// Just one step, already open.
+    private func focusedBody(_ step: Step) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(config.product.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(title(step))
+                        .font(.title3.bold())
+                }
+                Spacer()
+                DoneButton { dismiss() }
+            }
+            content(step)
+            Button {
+                withAnimation(.smooth(duration: 0.25)) { showAll = true }
+            } label: {
+                Label("All options", systemImage: "list.bullet")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.phantomCyan)
+            }
+            .padding(.top, 4)
+        }
+        .padding(20)
+    }
+
+    private var allSteps: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("You are customizing")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(config.product.title)
+                        .font(.title3.bold())
+                }
+                Spacer()
+                DoneButton { dismiss() }
+            }
+            .padding(.bottom, 8)
+
+            ForEach(Array(steps.enumerated()), id: \.element) { index, step in
+                StepSection(number: index + 1, title: title(step), summary: summary(step),
+                            isOpen: open == step) {
+                    withAnimation(.smooth(duration: 0.25)) { open = open == step ? nil : step }
+                } content: {
+                    content(step)
+                }
+                Divider().overlay(Color.white.opacity(0.12))
+            }
+
+            Button(action: onReview) {
+                Text("Review Your Order")
+                    .font(.headline)
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(.white, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 20)
+            Text("Everything above was chosen for you from your measurement. Tap Edit on any step to change it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.top, 8)
+        }
+        .padding(20)
     }
 
     // MARK: - Steps
@@ -317,24 +364,49 @@ struct BuildSheet: View {
                 Text(config.finish.title).font(.subheadline.weight(.semibold))
             }
 
-            OptionCard(title: "Wood grain", detail: "Wood-look finishes in many tones.", tag: .additional,
-                       selected: config.finish == .woodGrain && !config.colorUndecided) { choose(.woodGrain) }
-            OptionCard(title: "Custom Color", detail: "Matched to a color or swatch you choose.", tag: .additional,
-                       selected: config.finish == .custom && !config.colorUndecided) { choose(.custom) }
-            if config.finish == .custom, !config.colorUndecided {
-                HStack(spacing: 10) {
-                    ColorPicker("Custom color", selection: customColorBinding, supportsOpacity: false)
-                        .font(.subheadline)
+            // Wood grain, any custom color, or match a real color with the camera.
+            HStack(spacing: 18) {
+                specialSwatch("Wood grain", selected: config.finish == .woodGrain && !config.colorUndecided) {
+                    Button { choose(.woodGrain) } label: {
+                        FinishSwatch(finish: .woodGrain)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Wood grain")
+                }
+                specialSwatch("Custom", selected: config.finish == .custom && !config.colorUndecided) {
+                    ZStack {
+                        Circle().fill(AngularGradient(colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
+                                                      center: .center))
+                        if config.finish == .custom {
+                            Circle().fill(config.frameColor).padding(7)
+                        }
+                        ColorPicker("Custom color", selection: customColorBinding, supportsOpacity: false)
+                            .labelsHidden()
+                            .opacity(0.02)
+                            .scaleEffect(1.6)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Choose a custom color")
+                }
+                specialSwatch("Match a color", selected: false) {
                     Button {
                         dismiss()
                         session.beginPicking(.customColor)
                     } label: {
-                        Label("Match my trim", systemImage: "eyedropper")
-                            .font(.footnote.weight(.semibold))
+                        Image(systemName: "eyedropper")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Color.phantomNavy)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.phantomCyan, in: Circle())
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Match a color with the camera")
                 }
             }
+            Text(specialCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             OptionCard(title: "I'm unsure, I'll decide later",
                        selected: config.colorUndecided) { session.config.colorUndecided.toggle() }
 
@@ -348,6 +420,29 @@ struct BuildSheet: View {
                     .foregroundStyle(Color.phantomCyan)
             }
             .padding(.top, 4)
+        }
+    }
+
+    private var specialCaption: String {
+        if config.finish == .custom, !config.colorUndecided {
+            let source = config.customMatchedToTrim ? "matched with the camera" : "chosen on screen"
+            return "Custom Color \(config.customColorHex), \(source). Additional cost; your expert color-matches it on site."
+        }
+        return "Wood grain and custom colors are an additional cost. Tap the eyedropper and aim at anything, like your trim, to match its color."
+    }
+
+    /// A round swatch with a caption and a selection ring.
+    private func specialSwatch<Swatch: View>(_ caption: String, selected: Bool,
+                                             @ViewBuilder swatch: () -> Swatch) -> some View {
+        VStack(spacing: 6) {
+            swatch()
+                .frame(width: 40, height: 40)
+                .clipShape(Circle())
+                .padding(4)
+                .overlay(Circle().strokeBorder(selected ? Color.white : .clear, lineWidth: 2.5))
+            Text(caption)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
         }
     }
 

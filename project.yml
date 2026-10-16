@@ -19,6 +19,7 @@ targets:
       path: Config/Info.plist
       properties:
         CFBundleDisplayName: Phantom Screens
+        CFBundleName: Phantom Screens
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities:
           - arkit

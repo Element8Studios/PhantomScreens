@@ -374,10 +374,11 @@ final class ScreenDoorEntity: Entity {
             break
         }
 
-        // Mesh lock: black vinyl triangles in the mesh corners (doors only).
+        // Mesh lock: black vinyl triangles in the two mesh corners at the
+        // pull bar (doors only); the housing end has none.
         var corners: [ModelEntity] = []
         if config.hasMeshLock, horizontal {
-            for _ in 0..<4 {
+            for _ in 0..<2 {
                 let corner = ModelEntity(mesh: Self.cornerMesh, materials: [Self.vinylMaterial])
                 content.addChild(corner)
                 corners.append(corner)
@@ -442,12 +443,13 @@ final class ScreenDoorEntity: Entity {
                                         bar: SIMD3(0, barAt, 0)))
             }
 
-            // Mesh-lock corners follow the four corners of the visible mesh.
+            // Mesh-lock corners follow the top and bottom of the mesh's
+            // leading edge, against the pull bar.
             if !leaf.corners.isEmpty {
                 let size = min(0.07, min(screenW, screenH) / 3)
                 let cx = leaf.horizontal ? screenAt : 0
                 let cy = leaf.horizontal ? 0 : screenAt
-                let signs: [(Float, Float)] = [(-1, 1), (1, 1), (1, -1), (-1, -1)]
+                let signs: [(Float, Float)] = [(leaf.direction, 1), (leaf.direction, -1)]
                 for (corner, sign) in zip(leaf.corners, signs) {
                     corner.isEnabled = visible && size > 0.01
                     corner.position = SIMD3(cx + sign.0 * screenW / 2, cy + sign.1 * screenH / 2, 0.001)

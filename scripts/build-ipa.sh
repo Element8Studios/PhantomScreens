@@ -4,7 +4,7 @@
 # Needs a Mac with Xcode (Xcode 26 for Liquid Glass) and Homebrew.
 # Usage:  ./scripts/build-ipa.sh            (build number from the date)
 #         BUILD=7 ./scripts/build-ipa.sh    (build number 07)
-# Output: build/ipa/PhantomScreens-v<version>-build<NN>.ipa
+# Output: "build/ipa/Phantom Screens v<version> build <NN>.ipa"
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -39,6 +39,6 @@ done
 
 rm -rf build/Payload && mkdir -p build/Payload build/ipa
 cp -R "$APP" build/Payload/
-IPA="build/ipa/PhantomScreens-v$VERSION-build$BUILD.ipa"
+IPA="build/ipa/Phantom Screens v$VERSION build $BUILD.ipa"
 (cd build && zip -qr "../$IPA" Payload)
 echo "Built $IPA"
