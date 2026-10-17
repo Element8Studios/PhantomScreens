@@ -80,11 +80,11 @@ The build number shows in the app under **Settings → Version**.
 3. The app picks the product from the size (single, double-French, oversized, window or motorized)
    and slides the screen partly open. **Drag the pull handle** (or use ▲ ■ ▼ on a motorized screen).
 4. Everything is already chosen for you. The bar above the toolbar shows each choice
-   (Color, Mesh, Handle, Size, Type); tap one to change it. Customize opens short so the screen
+   (Color, Mesh, Handle or Motor, Size, Type); tap one to change it. Customize opens short so the screen
    stays in view, with tabs to switch options. In **Color**, the eyedropper matches any real
    color with the camera.
 5. Tap the **ladybug** (top right) for a bug test: bugs fly at the opening and bounce off
-   wherever the screen is closed.
+   wherever the screen is closed. Everything but the shutter hides until they're done.
 6. **Photo** saves a picture. **Review** shows a snapshot and every selection (tap one to change it),
    then **Request a Quote** sends it to a local Phantom expert, who quotes the price for your region.
 
@@ -111,7 +111,7 @@ A paid Apple Developer account ($99/year) makes it last a year instead.
 | Login fails in Sideloadly | Check your Apple ID password and use the newest Sideloadly. Wait a few minutes if you've tried many times. |
 | Black camera screen | Settings → Phantom Screens → Camera → On. |
 | Outline never appears | Step back so the whole opening and some wall around it are visible, turn on lights, tap the opening, or use Corners. |
-| Measurement looks off | Drag a corner of the screen, or adjust it in Options → Measurement. Your Phantom expert measures on site before ordering anyway. |
+| Measurement looks off | Drag a corner of the screen, or adjust it in Customize → Size. Your Phantom expert measures on site before ordering anyway. |
 
 ## Getting a better fit
 

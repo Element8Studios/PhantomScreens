@@ -222,7 +222,6 @@ final class FeatureTests: XCTestCase {
         let json = #"{"product":"motorized","mesh":"vinylMesh","width":3,"height":2.4}"#
         let config = try JSONDecoder().decode(ScreenConfig.self, from: Data(json.utf8))
         XCTAssertEqual(config.product, .motorizedVinyl)
-        XCTAssertEqual(config.vinyl, .meshBand)
         XCTAssertEqual(config.mesh, .insect)
     }
 
@@ -255,19 +254,16 @@ final class FeatureTests: XCTestCase {
         var config = ScreenConfig()
         config.product = .motorized
         XCTAssertFalse(config.isVinyl)
-        XCTAssertEqual(OptionStep.mesh.tabTitle(for: config), "Mesh")
         config.product = .motorizedVinyl
         XCTAssertTrue(config.isVinyl)
-        XCTAssertFalse(config.showsMesh)
         XCTAssertEqual(OpeningCategory.outdoor.products, [.motorized, .motorizedVinyl])
-        XCTAssertEqual(OptionStep.mesh.tabTitle(for: config), "Vinyl")
+        // No mesh on a vinyl panel: no Mesh tab or lines, a border color instead.
+        XCTAssertFalse(OptionStep.steps(for: .motorizedVinyl).contains(.mesh))
         let lines = config.lineItems(unit: .inches)
-        XCTAssertEqual(lines.first { $0.label == "Vinyl" }?.step, .mesh)
-        XCTAssertEqual(lines.first { $0.label == "Vinyl color" }?.step, .color)
+        XCTAssertNil(lines.first { $0.label == "Mesh" })
         XCTAssertNil(lines.first { $0.label == "Mesh color" })
-        config.vinyl = .meshBand
-        XCTAssertTrue(config.lineItems(unit: .inches).contains { $0.label == "Mesh color" })
-        // Every product has a mesh color.
+        XCTAssertEqual(lines.first { $0.label == "Vinyl border" }?.step, .color)
+        // Every other product has a mesh color.
         XCTAssertEqual(ScreenConfig().lineItems(unit: .inches).first { $0.label == "Mesh color" }?.value, "Black")
     }
 
@@ -275,7 +271,6 @@ final class FeatureTests: XCTestCase {
     func testVinylCablesAndRecessedHeadboxBuild() {
         var config = ScreenConfig()
         config.product = .motorizedVinyl
-        config.vinyl = .meshBand
         config.guide = .cables
         config.recessedHeadbox = true
         let door = ScreenDoorEntity(config: config)

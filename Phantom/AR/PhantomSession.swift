@@ -31,7 +31,9 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     // Placed
     @Published var config = ScreenConfig() {
         didSet {
-            door?.update(config)
+            // While a corner moves the screen is hidden; it's rebuilt once,
+            // when the finger lifts (touchEnded), not on every touch event.
+            if touchMode != .corner { door?.update(config) }
             syncSizeFromConfig()
             if config.finish != oldValue.finish || config.customColorHex != oldValue.customColorHex {
                 whiteCheckSoon()
@@ -180,6 +182,12 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     var menuOpen = false {
         didSet {
             guard menuOpen != oldValue else { return }
+            if menuOpen {
+                // A sheet ends the bug test and any drag it interrupted
+                // (SwiftUI doesn't end a gesture a sheet cancels).
+                stopBugTest()
+                touchEnded()
+            }
             let effects: ARView.RenderOptions = [.disableDepthOfField, .disableMotionBlur]
             if menuOpen { arView.renderOptions.formUnion(effects) } else { arView.renderOptions.subtract(effects) }
             // Style changes made behind the sheet get checked once it closes.
@@ -335,7 +343,11 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         if simd_length(shownGain - colorGain) > 0.001 {
             shownGain += (colorGain - shownGain) * k
             if simd_length(shownGain - colorGain) < 0.004 { shownGain = colorGain }
-            door?.setAppearance(gloss: gloss, castsShadows: realisticLighting, colorGain: shownGain)
+            // A new material for every painted part each frame is costly;
+            // steps under 1% aren't visible.
+            if let door, shownGain == colorGain || simd_length(shownGain - door.colorGain) > 0.01 {
+                door.setAppearance(gloss: gloss, castsShadows: realisticLighting, colorGain: shownGain)
+            }
         }
     }
 
@@ -630,7 +642,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         if locked && !isLocked {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
-        isLocked = locked
+        if isLocked != locked { isLocked = locked }
     }
 
     private func loseDetection() {
@@ -917,6 +929,9 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         isMatchingWhite = false
         isCheckingWhite = false
         stopBugTest()
+        touchMode = .none
+        adjustIndex = nil
+        dragTrackIndex = nil
         doorAnchor?.removeFromParent()
         doorAnchor = nil
         frameEntity = nil
@@ -1084,6 +1099,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     // MARK: - Fine-tuning corners
 
     func setAdjusting(_ on: Bool) {
+        // Corner editing hides the bug test's stop button, so it ends the test.
+        if on { stopBugTest() }
         isAdjusting = on
         adjustIndex = nil
         if !on { door?.isEnabled = true }
@@ -1108,6 +1125,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     func touchChanged(at location: CGPoint) {
         guard stage == .placed, pickerPurpose == nil else { return }
         if touchMode == .none {
+            // Overlay updates pause behind a sheet; hit-test fresh positions.
+            if menuOpen { updateAdjustHandles() }
             let corner = nearestCorner(to: location, within: isAdjusting ? 70 : 55)
             let bar = isAdjusting ? nil : nearestBar(to: location, within: 90)
             if let corner, corner.distance <= (bar?.distance ?? .infinity) {
@@ -1142,6 +1161,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
 
     func touchEnded() {
         if touchMode == .corner {
+            touchMode = .none
+            door?.update(config)
             door?.isEnabled = true
             if isDraggingCorner { isDraggingCorner = false }
             whiteCheckSoon()
@@ -1299,6 +1320,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         showDebug = false
         depthOffWhenPlaced = false
         advancedProductOptions = false
+        photos = []
+        hasDraggedHandle = false
         gloss = .gloss
         sunExposure = .auto
         if let id = Bundle.main.bundleIdentifier {

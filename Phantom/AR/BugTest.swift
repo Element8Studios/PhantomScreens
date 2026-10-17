@@ -32,7 +32,8 @@ struct BugTest {
 
 extension PhantomSession {
     func startBugTest() {
-        guard stage == .placed, isRevealed, !bugTestRunning, let frame = frameEntity, let door else { return }
+        guard stage == .placed, isRevealed, !bugTestRunning, !menuOpen, !isAdjusting, pickerPurpose == nil,
+              let frame = frameEntity, let door else { return }
         let root = Entity()
         frame.addChild(root)
         let plane = door.screenPlaneZ
@@ -66,6 +67,8 @@ extension PhantomSession {
     /// One frame of the bug test (called while placed).
     func stepBugs() {
         guard var test = bugTest, let door else { return }
+        // Edit a lone copy (no copy-on-write of the bugs every frame).
+        bugTest = nil
         let now = Date()
         let dt = Float(min(now.timeIntervalSince(test.last), 0.05))
         test.last = now

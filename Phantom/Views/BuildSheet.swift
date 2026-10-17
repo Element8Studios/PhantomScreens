@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Customize: one option at a time, chosen from a row of tabs (Color, Mesh
-/// or Vinyl, Handle or Motor, Size, Type). Everything starts chosen for the
+/// Customize: one option at a time, chosen from a row of tabs (Color, Mesh,
+/// Handle or Motor, Size, Type). Everything starts chosen for the
 /// customer from the measurement and the most popular options. The sheet
 /// opens short, so the screen stays visible above it and can still be
 /// dragged open and closed; pull it up for more room.
@@ -92,7 +92,7 @@ struct BuildSheet: View {
                                 .font(.system(size: 16, weight: .semibold))
                                 .frame(height: 22)
                         }
-                        Text(step.tabTitle(for: config))
+                        Text(step.tabTitle)
                             .font(.caption2.weight(.semibold))
                     }
                     .foregroundStyle(isCurrent ? Color.phantomCyan : Color.secondary)
@@ -107,7 +107,7 @@ struct BuildSheet: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(step.tabTitle(for: config))
+                .accessibilityLabel(step.tabTitle)
                 .accessibilityAddTraits(isCurrent ? .isSelected : [])
             }
         }
@@ -122,7 +122,7 @@ struct BuildSheet: View {
         case .measurement: return "Measurement"
         case .closure: return "Closure"
         case .control: return "Motor & Control"
-        case .mesh: return config.isVinyl ? "Vinyl Type" : "Mesh Type"
+        case .mesh: return "Mesh Type"
         case .color: return "Color"
         }
     }
@@ -316,24 +316,7 @@ struct BuildSheet: View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    @ViewBuilder
     private var meshStep: some View {
-        if config.isVinyl {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(VinylPanel.allCases) { panel in
-                    OptionCard(title: panel.title, detail: panel.detail,
-                               selected: config.vinyl == panel) { session.config.vinyl = panel }
-                }
-                Text("Border and mesh colors are under Color.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        } else {
-            plainMeshStep
-        }
-    }
-
-    private var plainMeshStep: some View {
         VStack(alignment: .leading, spacing: 8) {
             OptionCard(title: MeshType.insect.title, detail: MeshType.insect.detail, tag: .included,
                        selected: config.mesh == .insect) { session.config.mesh = .insect }
@@ -451,7 +434,7 @@ struct BuildSheet: View {
                     }
                 }
             }
-            if config.showsMesh {
+            if !config.isVinyl {
                 groupLabel("Mesh color")
                 HStack(spacing: 18) {
                     ForEach(MeshColor.allCases) { color in

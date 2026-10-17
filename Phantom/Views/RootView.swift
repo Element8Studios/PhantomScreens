@@ -360,7 +360,9 @@ private struct PlacedControls: View {
                 }
                 .accessibilityLabel("More")
                 Spacer()
-                GlassPill(text: Length.size(width: session.config.width, height: session.config.height, unit: unit))
+                GlassPill(text: session.bugTestRunning
+                          ? "Incoming!"
+                          : Length.size(width: session.config.width, height: session.config.height, unit: unit))
                 Spacer()
                 if !session.isAdjusting {
                     BugTestButton(session: session)
@@ -415,23 +417,36 @@ private struct PlacedControls: View {
         .padding(.bottom, 12)
     }
 
+    /// During the bug test only the shutter stays, in its usual place, so
+    /// nothing gets in the way of the bugs (or a photo of them).
     private var placedBottom: some View {
-        VStack(spacing: 12) {
-            if session.config.product.isMotorized {
-                MotorControls(session: session)
+        let bugs = session.bugTestRunning
+        return VStack(spacing: 12) {
+            if !bugs {
+                if session.config.product.isMotorized {
+                    MotorControls(session: session)
+                }
+                OptionBar(config: session.config, unit: unit) { openOptions($0) }
+                    .transition(.opacity)
             }
-            OptionBar(config: session.config, unit: unit) { openOptions($0) }
             GlassGroup {
                 HStack {
                     ToolbarButton(systemName: "arrow.counterclockwise", title: "Measure again") { session.remeasure() }
                         .frame(maxWidth: .infinity)
+                        .opacity(bugs ? 0 : 1)
+                        .allowsHitTesting(!bugs)
+                        .accessibilityHidden(bugs)
                     ShutterButton(systemName: nil, title: "Photo") { session.capturePhoto() }
                         .frame(maxWidth: .infinity)
                     ToolbarButton(systemName: "checklist", title: "Review") { sheet = .review }
                         .frame(maxWidth: .infinity)
+                        .opacity(bugs ? 0 : 1)
+                        .allowsHitTesting(!bugs)
+                        .accessibilityHidden(bugs)
                 }
             }
         }
+        .animation(.smooth(duration: 0.25), value: bugs)
     }
 }
 
@@ -459,7 +474,7 @@ private struct OptionBar: View {
                                 .font(.system(size: 17, weight: .semibold))
                                 .frame(height: 22)
                         }
-                        Text(step.tabTitle(for: config))
+                        Text(step.tabTitle)
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
                     }
@@ -469,7 +484,7 @@ private struct OptionBar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(step.tabTitle(for: config)): \(value(step))")
+                .accessibilityLabel("\(step.tabTitle): \(value(step))")
                 .accessibilityHint("Change this option")
             }
         }
@@ -482,7 +497,7 @@ private struct OptionBar: View {
         case .color:
             if config.colorUndecided { return "Decide later" }
             return config.finish == .custom ? "Custom" : config.finish.title
-        case .mesh: return config.isVinyl ? config.vinyl.shortTitle : config.mesh.shortTitle
+        case .mesh: return config.mesh.shortTitle
         case .closure: return config.closure.shortTitle
         case .control: return config.motorControl.title
         case .measurement:

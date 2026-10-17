@@ -35,13 +35,13 @@ on iOS 17–25).
      or smart home; side tracks or stainless cable guides with chrome floor brackets; and,
      with Settings → Advanced → Advanced product customization, a headbox recessed into the
      ceiling.
-   - **Mesh**: Insect, or a custom mesh (pet, sun & heat, privacy). On a **Motorized Vinyl
-     Screen** (chosen under Type) this tab becomes **Vinyl**: clear vinyl in a fabric border,
-     or clear vinyl above a band of mesh.
+   - **Mesh**: Insect, or a custom mesh (pet, sun & heat, privacy). A **Motorized Vinyl
+     Screen** (chosen under Type) has no mesh: it's clear vinyl in a fabric border, with a
+     deep strip along the bottom, so it has no Mesh tab.
    - **Color**: the ten standard colors, wood grain, a custom color (pick it, or tap the
      eyedropper to match any real color with the camera) or "decide later". The closest
      standard color to your trim is suggested. Below the frame colors: mesh color (Black,
-     Charcoal or Grey, on every product) and, on vinyl screens, a black or white border.
+     Charcoal or Grey), or on vinyl screens a black or white border.
 
    Options say **Included** or **Additional cost**; there are no prices, since they vary by
    region.
@@ -98,7 +98,8 @@ Phantom/
 │   ├── DepthDetection.swift     LiDAR detection against the wall plane, door/window labels
 │   ├── OpeningGeometry.swift    corners -> opening frame, edge finding (unit-tested)
 │   ├── ScreenDoorEntity.swift   procedural door, window and motorized screens
-│   ├── WhiteMatch.swift         matching the frame's white to the real trim
+│   ├── WhiteMatch.swift         white balance to the room, trim color suggestion
+│   ├── BugTest.swift            the ladybug bug test
 │   ├── ColorPicking.swift       centre-screen color picker
 │   └── SunLight.swift           outdoor sun direction
 ├── Model/                  catalog, configuration, units, saved designs
