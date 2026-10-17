@@ -10,6 +10,10 @@ on:
         description: "Also run unit tests (uses more minutes)"
         type: boolean
         default: false
+      preview_app:
+        description: "Build as a separate preview app (installs next to the regular one)"
+        type: boolean
+        default: false
 
 concurrency:
   group: build-${{ github.ref }}
@@ -32,7 +36,7 @@ jobs:
         run: sed -i '' $'s/\r$//' scripts/*.sh
 
       - name: Build unsigned IPA
-        run: BUILD=${{ github.run_number }} bash scripts/build-ipa.sh
+        run: BUILD=${{ github.run_number }} VARIANT=${{ inputs.preview_app && 'preview' || '' }} bash scripts/build-ipa.sh
 
       - name: Name the artifact
         run: |
