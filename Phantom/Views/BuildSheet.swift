@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Customize: one option at a time, chosen from a row of tabs (Color, Mesh,
-/// Handle, Size, Type). Everything starts chosen for the customer from the
-/// measurement and the most popular options. The sheet opens short, so the
-/// screen stays visible above it and can still be dragged open and closed;
-/// pull it up for more room.
+/// Customize: one option at a time, chosen from a row of tabs (Color, Mesh
+/// or Vinyl, Handle or Motor, Size, Type). Everything starts chosen for the
+/// customer from the measurement and the most popular options. The sheet
+/// opens short, so the screen stays visible above it and can still be
+/// dragged open and closed; pull it up for more room.
 struct BuildSheet: View {
     typealias Step = OptionStep
 
@@ -33,7 +33,7 @@ struct BuildSheet: View {
         VStack(spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(config.typeTitle)
+                    Text(config.product.title)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(title(current))
@@ -150,19 +150,10 @@ struct BuildSheet: View {
 
             ForEach(config.product.category.products) { product in
                 OptionCard(title: product.title, detail: product.detail,
+                           tag: product == .motorizedVinyl ? .additional : nil,
                            badge: product == session.suggestedProduct ? "Suggested" : nil,
-                           symbol: product.symbol, selected: config.product == product && !config.isVinyl) {
+                           symbol: product.symbol, selected: config.product == product) {
                     session.config.product = product
-                    if session.config.mesh.isVinyl { session.config.mesh = .insect }
-                }
-                if product.isMotorized {
-                    OptionCard(title: "Motorized Vinyl Screen",
-                               detail: "Clear vinyl in a fabric border keeps out wind, rain and cold, so the space is usable in any season.",
-                               tag: .additional, symbol: "cloud.rain",
-                               selected: config.isVinyl) {
-                        session.config.product = .motorized
-                        if !session.config.mesh.isVinyl { session.config.mesh = .clearVinyl }
-                    }
                 }
             }
 
@@ -329,9 +320,9 @@ struct BuildSheet: View {
     private var meshStep: some View {
         if config.isVinyl {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(MeshType.vinylOptions) { vinyl in
-                    OptionCard(title: vinyl.title, detail: vinyl.detail,
-                               selected: config.mesh == vinyl) { session.config.mesh = vinyl }
+                ForEach(VinylPanel.allCases) { panel in
+                    OptionCard(title: panel.title, detail: panel.detail,
+                               selected: config.vinyl == panel) { session.config.vinyl = panel }
                 }
                 Text("Border and mesh colors are under Color.")
                     .font(.caption)
@@ -346,7 +337,7 @@ struct BuildSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             OptionCard(title: MeshType.insect.title, detail: MeshType.insect.detail, tag: .included,
                        selected: config.mesh == .insect) { session.config.mesh = .insect }
-            let customMesh = config.mesh.isCustom && !config.mesh.isVinyl
+            let customMesh = config.mesh.isCustom
             OptionCard(title: "Custom mesh", detail: "Pet, sun & heat, or privacy mesh.", tag: .additional,
                        selected: customMesh) {
                 if !customMesh { session.config.mesh = .pet }
@@ -367,7 +358,7 @@ struct BuildSheet: View {
     private var colorStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let seen = trim.color {
-                let closest = FrameFinish.closest(to: seen, lightKelvin: trim.lightKelvin)
+                let closest = FrameFinish.closest(to: seen)
                 HStack(spacing: 10) {
                     FinishSwatch(finish: closest).frame(width: 30, height: 30)
                     VStack(alignment: .leading, spacing: 1) {

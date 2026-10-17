@@ -85,7 +85,7 @@ struct ReviewView: View {
 
                     LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(session.config.typeTitle).font(.headline)
+                        Text(session.config.product.title).font(.headline)
                         Text("\(Length.size(width: session.config.width, height: session.config.height, unit: unit)), measured in AR")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.85))

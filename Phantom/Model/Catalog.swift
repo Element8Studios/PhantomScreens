@@ -35,7 +35,7 @@ enum OpeningCategory: String, CaseIterable, Identifiable, Codable {
 enum Product: String, CaseIterable, Identifiable, Codable {
     // "single", "double" and "window" keep their raw values so designs saved
     // by earlier versions still load.
-    case single, sliding, double, oversized, window, motorized
+    case single, sliding, double, oversized, window, motorized, motorizedVinyl
 
     var id: String { rawValue }
 
@@ -43,7 +43,7 @@ enum Product: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .single, .sliding, .double, .oversized: return .door
         case .window: return .window
-        case .motorized: return .outdoor
+        case .motorized, .motorizedVinyl: return .outdoor
         }
     }
 
@@ -55,6 +55,7 @@ enum Product: String, CaseIterable, Identifiable, Codable {
         case .oversized: return "Oversized Door Screen"
         case .window: return "Window Screen"
         case .motorized: return "Motorized Screen"
+        case .motorizedVinyl: return "Motorized Vinyl Screen"
         }
     }
 
@@ -66,6 +67,7 @@ enum Product: String, CaseIterable, Identifiable, Codable {
         case .oversized: return "Oversized"
         case .window: return "Window"
         case .motorized: return "Motorized"
+        case .motorizedVinyl: return "Motorized Vinyl"
         }
     }
 
@@ -77,6 +79,7 @@ enum Product: String, CaseIterable, Identifiable, Codable {
         case .oversized: return "For folding, multi-panel and lift-and-slide doors, up to 15 ft wide with one screen."
         case .window: return "Pulls down over the window and rolls away when you don't need it."
         case .motorized: return "For porches, patios and pergolas. Lowers and raises at the touch of a button."
+        case .motorizedVinyl: return "Clear vinyl in a fabric border keeps out wind, rain and cold, so the space is usable in any season."
         }
     }
 
@@ -88,6 +91,7 @@ enum Product: String, CaseIterable, Identifiable, Codable {
         case .oversized: return "square.split.2x1"
         case .window: return "window.vertical.open"
         case .motorized: return "sun.max"
+        case .motorizedVinyl: return "cloud.rain"
         }
     }
 
@@ -97,7 +101,7 @@ enum Product: String, CaseIterable, Identifiable, Codable {
     var offersClosure: Bool { category == .door }
     /// The website's height and width bands apply to these.
     var usesSizeBands: Bool { self == .single || self == .sliding }
-    var isMotorized: Bool { self == .motorized }
+    var isMotorized: Bool { self == .motorized || self == .motorizedVinyl }
 
     /// Largest opening this product covers, in metres, from Phantom's
     /// published limits. Larger openings need a custom quote.
@@ -108,7 +112,7 @@ enum Product: String, CaseIterable, Identifiable, Codable {
         case .double: return SIMD2(96 * Length.metresPerInch, 120 * Length.metresPerInch)
         case .oversized: return SIMD2(30 * foot, 12 * foot)   // two screens; 15 ft with one
         case .window: return SIMD2(10 * foot, 10 * foot)
-        case .motorized: return SIMD2(40 * foot, 16 * foot)
+        case .motorized, .motorizedVinyl: return SIMD2(40 * foot, 16 * foot)
         }
     }
 
@@ -187,9 +191,8 @@ enum MotorControl: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// What fills the screen: a mesh, or (motorized screens) a vinyl panel.
 enum MeshType: String, CaseIterable, Identifiable, Codable {
-    case insect, pet, sun, privacy, clearVinyl, vinylMesh
+    case insect, pet, sun, privacy
 
     var id: String { rawValue }
 
@@ -199,8 +202,6 @@ enum MeshType: String, CaseIterable, Identifiable, Codable {
         case .pet: return "Pet mesh"
         case .sun: return "Sun & heat mesh"
         case .privacy: return "Privacy mesh"
-        case .clearVinyl: return "Clear vinyl"
-        case .vinylMesh: return "Clear vinyl with mesh band"
         }
     }
 
@@ -210,8 +211,6 @@ enum MeshType: String, CaseIterable, Identifiable, Codable {
         case .pet: return "Pet"
         case .sun: return "Sun & heat"
         case .privacy: return "Privacy"
-        case .clearVinyl: return "Clear vinyl"
-        case .vinylMesh: return "Vinyl + mesh"
         }
     }
 
@@ -221,19 +220,29 @@ enum MeshType: String, CaseIterable, Identifiable, Codable {
         case .pet: return "Tougher mesh that stands up to paws and claws."
         case .sun: return "Cuts glare and heat on sunny openings."
         case .privacy: return "Daytime privacy while air still flows through."
-        case .clearVinyl: return "A clear window in a fabric border. Keeps out wind and rain and holds in warmth."
-        case .vinylMesh: return "A clear vinyl window above a band of mesh, for views with some airflow."
         }
     }
 
     /// Everything but insect mesh costs extra.
     var isCustom: Bool { self != .insect }
-    var isVinyl: Bool { self == .clearVinyl || self == .vinylMesh }
     var tag: PriceTag { isCustom ? .additional : .included }
-    /// Custom meshes (not vinyl), offered on every product.
-    static var customOptions: [MeshType] { allCases.filter { $0.isCustom && !$0.isVinyl } }
-    /// Vinyl panels, offered on motorized screens.
-    static var vinylOptions: [MeshType] { allCases.filter(\.isVinyl) }
+    static var customOptions: [MeshType] { allCases.filter(\.isCustom) }
+}
+
+/// The panel of a Motorized Vinyl Screen.
+enum VinylPanel: String, CaseIterable, Identifiable, Codable {
+    case clear, meshBand
+
+    var id: String { rawValue }
+
+    var title: String { self == .clear ? "Clear vinyl" : "Clear vinyl with mesh band" }
+    var shortTitle: String { self == .clear ? "Clear" : "Vinyl + mesh" }
+
+    var detail: String {
+        self == .clear
+            ? "A clear window in a fabric border. Keeps out wind and rain and holds in warmth."
+            : "A clear vinyl window above a band of mesh, for views with some airflow."
+    }
 }
 
 /// What drives a motorized screen.
@@ -364,14 +373,11 @@ enum FrameFinish: String, CaseIterable, Identifiable, Codable {
 
     var color: Color { Color(uiColor) }
 
-    /// The standard color closest to a color seen by the camera.
-    ///
-    /// Warm room light makes white trim look almond to the camera, so part of
-    /// the light's color (ARKit's estimate, in kelvin) is taken back out
-    /// first; the camera's own white balance has already removed some of it. Brightness depends on exposure, so hue and
-    /// saturation count more than lightness. White trim is by far the most
-    /// common, so Classic White wins near-ties.
-    static func closest(to seen: UIColor, lightKelvin: Float? = nil) -> FrameFinish {
+    /// The standard color closest to a color seen by the camera, already
+    /// corrected for the room's light (see `PhantomSession.relative`). Hue
+    /// and saturation count more than lightness. White trim is by far the
+    /// most common, so Classic White wins near-ties.
+    static func closest(to seen: UIColor) -> FrameFinish {
         func rgb(_ c: UIColor) -> SIMD3<Float> {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             c.getRed(&r, green: &g, blue: &b, alpha: &a)
@@ -382,18 +388,7 @@ enum FrameFinish: String, CaseIterable, Identifiable, Codable {
             let chroma = v / y
             return SIMD3(chroma.x - chroma.y, chroma.z - chroma.y, y)
         }
-        func luma(_ v: SIMD3<Float>) -> Float { 0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z }
-        var color = rgb(seen)
-        if let kelvin = lightKelvin, kelvin > 1000 {
-            // Remove 40% of the light's tint (tuned so white stays white from
-            // 2700 K to daylight), keeping the brightness as seen.
-            let light = ColorTemperature.rgb(kelvin: kelvin)
-            let daylight = ColorTemperature.rgb(kelvin: 6500)
-            let full = daylight / pointwiseMax(light, SIMD3(repeating: 0.05))
-            let corrected = color * (SIMD3(repeating: 1) + (full - SIMD3(repeating: 1)) * 0.4)
-            color = corrected * (luma(color) / max(luma(corrected), 0.0001))
-        }
-        let target = lab(color)
+        let target = lab(rgb(seen))
         func distance(_ f: FrameFinish) -> Float {
             let d = lab(rgb(f.uiColor)) - target
             let score = d.x * d.x + d.y * d.y + 0.15 * d.z * d.z
@@ -509,6 +504,8 @@ struct ScreenConfig: Equatable, Codable {
     /// "I'm unsure, I'll decide later." The preview keeps showing `finish`.
     var colorUndecided = false
     var mesh: MeshType = .insect
+    /// Motorized Vinyl Screens: the panel.
+    var vinyl: VinylPanel = .clear
     var meshColor: MeshColor = .black
     /// Motorized vinyl: the fabric border's color.
     var vinylColor: VinylColor = .black
@@ -545,7 +542,18 @@ struct ScreenConfig: Equatable, Codable {
         side = try c.decodeIfPresent(RetractSide.self, forKey: .side) ?? defaults.side
         finish = try c.decodeIfPresent(FrameFinish.self, forKey: .finish) ?? defaults.finish
         colorUndecided = try c.decodeIfPresent(Bool.self, forKey: .colorUndecided) ?? false
-        mesh = try c.decodeIfPresent(MeshType.self, forKey: .mesh) ?? defaults.mesh
+        // Before Motorized Vinyl was a product of its own, vinyl was saved
+        // as a kind of mesh on a Motorized Screen.
+        let meshName = try c.decodeIfPresent(String.self, forKey: .mesh)
+        var savedVinyl: VinylPanel?
+        if meshName == "clearVinyl" || meshName == "vinylMesh" {
+            if product.isMotorized { product = .motorizedVinyl }
+            savedVinyl = meshName == "vinylMesh" ? .meshBand : .clear
+            mesh = .insect
+        } else {
+            mesh = meshName.flatMap(MeshType.init(rawValue:)) ?? defaults.mesh
+        }
+        vinyl = try c.decodeIfPresent(VinylPanel.self, forKey: .vinyl) ?? savedVinyl ?? defaults.vinyl
         meshColor = try c.decodeIfPresent(MeshColor.self, forKey: .meshColor) ?? defaults.meshColor
         vinylColor = try c.decodeIfPresent(VinylColor.self, forKey: .vinylColor) ?? defaults.vinylColor
         mount = try c.decodeIfPresent(Mount.self, forKey: .mount) ?? defaults.mount
@@ -563,12 +571,9 @@ struct ScreenConfig: Equatable, Codable {
     var hasMeshLock: Bool { meshLock && product.offersMeshLock }
 
     /// A Motorized Vinyl Screen: a vinyl panel instead of mesh.
-    var isVinyl: Bool { product.isMotorized && mesh.isVinyl }
+    var isVinyl: Bool { product == .motorizedVinyl }
     /// Any mesh showing (a vinyl panel may have a band of mesh).
-    var showsMesh: Bool { !isVinyl || mesh == .vinylMesh }
-
-    var typeTitle: String { isVinyl ? "Motorized Vinyl Screen" : product.title }
-    var typeShortTitle: String { isVinyl ? "Motorized Vinyl" : product.shortTitle }
+    var showsMesh: Bool { !isVinyl || vinyl == .meshBand }
 
     var frameUIColor: UIColor {
         finish == .custom ? (UIColor(hex: customColorHex) ?? finish.uiColor) : finish.uiColor
@@ -586,7 +591,7 @@ struct ScreenConfig: Equatable, Codable {
 
     /// One line for the bar at the bottom of the screen.
     var summary: String {
-        var parts = [colorUndecided ? "Color later" : finishTitle, mesh.title]
+        var parts = [colorUndecided ? "Color later" : finishTitle, isVinyl ? vinyl.title : mesh.title]
         if product.offersClosure { parts.append(closure.shortTitle) }
         if hasMeshLock { parts.append("Mesh lock") }
         if product.isMotorized { parts.append(motorControl.title) }
@@ -597,44 +602,38 @@ struct ScreenConfig: Equatable, Codable {
     /// The order, line by line, as shown on Review Your Order and sent to the expert.
     func lineItems(unit: LengthUnit) -> [LineItem] {
         var items: [LineItem] = []
-        func add(_ label: String, _ value: String, _ tag: PriceTag? = nil) {
-            let step: OptionStep?
-            switch label {
-            case "Product", "Type", "Retracts to the": step = .type
-            case "Measured size", "Height", "Width", "Size", "Mount": step = .measurement
-            case "Closure": step = .closure
-            case "Control", "Motor", "Guides", "Headbox": step = .control
-            case "Mesh", "Vinyl": step = .mesh
-            case "Color", "Mesh color", "Vinyl color": step = .color
-            default: step = nil
-            }
+        func add(_ label: String, _ value: String, _ tag: PriceTag? = nil, step: OptionStep) {
             items.append(LineItem(label: label, value: value, tag: tag, step: step))
         }
-        add("Product", typeTitle)
+        add("Product", product.title, step: .type)
         if product.offersMeshLock {
-            add("Type", hasMeshLock ? "Door Screen with Mesh Lock" : "Door Screen")
+            add("Type", hasMeshLock ? "Door Screen with Mesh Lock" : "Door Screen", step: .type)
         }
-        add("Measured size", Length.size(width: width, height: height, unit: unit))
-        if let band = heightBand { add("Height", band.title(unit), band.tag) }
-        if let band = widthBand { add("Width", band.title(unit), band.tag) }
-        if !fitsProduct { add("Size", "Larger than standard, custom quote") }
-        if product.hasRetractSide { add("Retracts to the", side.title.lowercased()) }
-        if product.offersClosure { add("Closure", closure.title, closure.tag) }
+        add("Measured size", Length.size(width: width, height: height, unit: unit), step: .measurement)
+        if let band = heightBand { add("Height", band.title(unit), band.tag, step: .measurement) }
+        if let band = widthBand { add("Width", band.title(unit), band.tag, step: .measurement) }
+        if !fitsProduct { add("Size", "Larger than standard, custom quote", step: .measurement) }
+        if product.hasRetractSide { add("Retracts to the", side.title.lowercased(), step: .type) }
+        if product.offersClosure { add("Closure", closure.title, closure.tag, step: .closure) }
         if product.isMotorized {
-            add("Motor", motor.title)
-            add("Control", motorControl.title)
-            add("Guides", guide.title)
-            if recessedHeadbox { add("Headbox", "Recessed into the ceiling") }
+            add("Motor", motor.title, step: .control)
+            add("Control", motorControl.title, step: .control)
+            add("Guides", guide.title, step: .control)
+            if recessedHeadbox { add("Headbox", "Recessed into the ceiling", step: .control) }
         }
-        add(isVinyl ? "Vinyl" : "Mesh", mesh.title, mesh.tag)
-        if colorUndecided {
-            add("Color", "Undecided")
+        if isVinyl {
+            add("Vinyl", vinyl.title, step: .mesh)
         } else {
-            add("Color", finishTitle, finish.tag)
+            add("Mesh", mesh.title, mesh.tag, step: .mesh)
         }
-        if showsMesh { add("Mesh color", meshColor.title) }
-        if isVinyl { add("Vinyl color", vinylColor.title) }
-        add("Mount", mount.title)
+        if colorUndecided {
+            add("Color", "Undecided", step: .color)
+        } else {
+            add("Color", finishTitle, finish.tag, step: .color)
+        }
+        if showsMesh { add("Mesh color", meshColor.title, step: .color) }
+        if isVinyl { add("Vinyl color", vinylColor.title, step: .color) }
+        add("Mount", mount.title, step: .measurement)
         return items
     }
 

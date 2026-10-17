@@ -85,16 +85,3 @@ enum PaintGloss: String, CaseIterable, Identifiable {
         switch self { case .matte: return 0.5; case .satin: return 0.25; case .gloss: return 0.05 }
     }
 }
-
-enum ColorTemperature {
-    /// Approximate RGB (0...1) for a color temperature in kelvin (1000–40000 K).
-    static func rgb(kelvin: Float) -> SIMD3<Float> {
-        let t = min(max(kelvin, 1000), 40000) / 100
-        let r: Float = t <= 66 ? 255 : 329.698727446 * pow(t - 60, -0.1332047592)
-        let g: Float = t <= 66
-            ? 99.4708025861 * log(t) - 161.1195681661
-            : 288.1221695283 * pow(t - 60, -0.0755148492)
-        let b: Float = t >= 66 ? 255 : (t <= 19 ? 0 : 138.5177312231 * log(t - 10) - 305.0447927307)
-        return SIMD3(r, g, b).clamped(lowerBound: .zero, upperBound: SIMD3(repeating: 255)) / 255
-    }
-}

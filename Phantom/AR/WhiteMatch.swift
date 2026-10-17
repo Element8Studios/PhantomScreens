@@ -20,8 +20,9 @@ import UIKit
 /// few seconds (off by default, since it can visibly shift).
 extension PhantomSession {
     /// - Parameters:
-    ///   - trimPoint: a screen point on the trim picked by the user; nil
-    ///     samples the trim automatically around the opening.
+    ///   - trimPoint: a screen point on a white surface picked by the user;
+    ///     nil uses the room's own white (the brightest neutral surfaces in
+    ///     view, away from the screen).
     ///   - background: a quiet periodic check: no spinner or message, and
     ///     small differences are left alone.
     func matchWhiteToTrim(announce: Bool = true, delay: Double = 0, trimPoint: CGPoint? = nil,
@@ -56,7 +57,6 @@ extension PhantomSession {
                     // trim under warm bulbs comes out white, almond still
                     // comes out warmer than the room's white.
                     self.live.trim.color = Self.srgbColor(Self.relative(surround, to: result.trim))
-                    self.live.trim.lightKelvin = nil
                 }
                 // A background check ignores small differences (no jitter).
                 let deadband: Float = background && round == 0 ? 0.12 : 0

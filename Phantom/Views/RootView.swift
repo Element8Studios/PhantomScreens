@@ -482,13 +482,13 @@ private struct OptionBar: View {
         case .color:
             if config.colorUndecided { return "Decide later" }
             return config.finish == .custom ? "Custom" : config.finish.title
-        case .mesh: return config.mesh.shortTitle
+        case .mesh: return config.isVinyl ? config.vinyl.shortTitle : config.mesh.shortTitle
         case .closure: return config.closure.shortTitle
         case .control: return config.motorControl.title
         case .measurement:
             return Length.size(width: config.width, height: config.height, unit: unit)
         case .type:
-            return config.typeShortTitle + (config.hasMeshLock ? " + lock" : "")
+            return config.product.shortTitle + (config.hasMeshLock ? " + lock" : "")
         }
     }
 }

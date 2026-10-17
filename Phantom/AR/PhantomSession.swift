@@ -31,9 +31,6 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     // Placed
     @Published var config = ScreenConfig() {
         didSet {
-            // Vinyl panels are only made for motorized screens. (Assigning
-            // here doesn't re-run didSet, so this comes first.)
-            if config.mesh.isVinyl, !config.product.isMotorized { config.mesh = .insect }
             door?.update(config)
             syncSizeFromConfig()
             if config.finish != oldValue.finish || config.customColorHex != oldValue.customColorHex {
@@ -205,7 +202,9 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     private var isDetecting = false
     private var stableCount = 0
     private var dragTrackIndex: Int?
-    private var animation: Task<Void, Never>?
+    /// The screen moving on its own (reveal, motor buttons), stepped once
+    /// per frame in `onFrame`. A drag or a direct set cancels it.
+    private var motion: ScreenMotion?
     private var toastToken = 0
     private let visionQueue = DispatchQueue(label: "phantom.vision", qos: .userInitiated)
 
@@ -410,6 +409,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             if (hit != nil) != crosshairOnSurface { crosshairOnSurface = hit != nil }
             updateCornerPreview(hit)
         case .placed:
+            stepMotion()
             stepBugs()
             stepReveal()
             stepAppearance()
@@ -436,7 +436,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         guard let opening = detectedOpening else { return "Opening" }
         switch suggestion(for: opening) {
         case .window: return "Window"
-        case .motorized: return "Outdoor opening"
+        case .motorized, .motorizedVinyl: return "Outdoor opening"
         case .oversized: return "Large doorway"
         default: return "Doorway"
         }
@@ -447,7 +447,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     /// face of the trim when a closed door sits nearly flush with it.
     /// Motorized screens mount on the face of posts and beams.
     func suggestedMount(for opening: Opening, product: Product) -> Mount {
-        if product == .motorized { return .outside }
+        if product.isMotorized { return .outside }
         guard hasLiDAR, let frame = arView.session.currentFrame,
               let screen = arView.project(opening.center), arView.bounds.contains(screen),
               let depth = depth(at: screen, in: frame),
@@ -912,7 +912,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private func removeDoor() {
-        animation?.cancel()
+        motion = nil
         whiteMatchTask?.cancel()
         isMatchingWhite = false
         isCheckingWhite = false
@@ -1123,7 +1123,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             } else if let bar {
                 dragTrackIndex = bar.index
                 touchMode = .bar
-                animation?.cancel()
+                motion = nil
                 if !hasDraggedHandle {
                     hasDraggedHandle = true
                     live.hint.point = nil
@@ -1228,35 +1228,34 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func setExtent(_ value: Float) {
-        animation?.cancel()
+        motion = nil
         applyExtent(min(max(value, 0), 1))
     }
 
     /// Motorized screens: lower, raise and stop at a motor-like pace.
     func lowerScreen() { animate(to: 1, metresPerSecond: 0.35) }
     func raiseScreen() { animate(to: 0, metresPerSecond: 0.35) }
-    func stopScreen() { animation?.cancel() }
+    func stopScreen() { motion = nil }
 
-    /// - Parameter metresPerSecond: constant travel speed; nil eases over about a second.
+    /// - Parameter metresPerSecond: constant travel speed, like a motor; nil
+    ///   eases in and out over up to about a second.
     private func animate(to target: Float, metresPerSecond: Float? = nil) {
-        animation?.cancel()
         let start = live.screen.extent
         let vertical = config.product == .window || config.product.isMotorized
         let travel = vertical ? config.height : config.width
         let eased = max(0.2, Double(abs(target - start)) * 1.1)
         let timed: Double? = metresPerSecond.map { Double(abs(target - start) * travel / $0) }
-        let duration = max(0.05, timed ?? eased)
-        animation = Task { [weak self] in
-            let began = Date()
-            while !Task.isCancelled {
-                let t = min(1, Date().timeIntervalSince(began) / duration)
-                let eased = Float(t * t * (3 - 2 * t))
-                guard let self else { return }
-                self.applyExtent(start + (target - start) * eased)
-                if t >= 1 { break }
-                try? await Task.sleep(nanoseconds: 16_000_000)
-            }
-        }
+        motion = ScreenMotion(from: start, to: target, began: Date(),
+                              duration: max(0.05, timed ?? eased), eased: metresPerSecond == nil)
+    }
+
+    private func stepMotion() {
+        guard let motion else { return }
+        let t = min(1, Date().timeIntervalSince(motion.began) / motion.duration)
+        let shaped: Double = motion.eased ? t * t * (3 - 2 * t) : t
+        let progress = Float(shaped)
+        applyExtent(motion.from + (motion.to - motion.from) * progress)
+        if t >= 1 { self.motion = nil }
     }
 
     // MARK: - Photos
@@ -1355,9 +1354,6 @@ final class StatusLive: ObservableObject {
 @MainActor
 final class TrimLive: ObservableObject {
     @Published var color: UIColor?
-    /// ARKit's estimate of the room light's color temperature when the trim
-    /// was seen, used to see past warm or cool light.
-    @Published var lightKelvin: Float?
 }
 
 /// Developer overlay (Settings → Advanced → Debug overlay).
@@ -1406,4 +1402,14 @@ struct CornerPreview: Equatable {
     var quad: [CGPoint]
     var width: Float
     var height: Float
+}
+
+/// A screen moving from one extent to another over a set time.
+private struct ScreenMotion {
+    let from: Float
+    let to: Float
+    let began: Date
+    let duration: Double
+    /// Ease in and out; otherwise a constant, motor-like speed.
+    let eased: Bool
 }

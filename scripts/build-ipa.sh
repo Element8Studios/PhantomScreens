@@ -29,6 +29,10 @@ if ! xcodebuild build \
   echo "BUILD FAILED (full log: build/build.log)"
   exit 1
 fi
+# Slow-to-compile code (see OTHER_SWIFT_FLAGS in project.yml): worth fixing
+# before it becomes an error.
+grep -E "warning: .* took [0-9]+ms to type-check" build/build.log \
+  | sort -u | cut -c1-300 | head -20 || true
 
 APP=build/derived/Build/Products/Release-iphoneos/Phantom.app
 test -x "$APP/Phantom" || { echo "App executable missing"; exit 1; }
