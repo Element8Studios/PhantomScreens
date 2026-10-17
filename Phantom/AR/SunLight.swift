@@ -109,8 +109,10 @@ extension PhantomSession {
         light.light.color = .white
         light.light.intensity = (inSun ? 9000 : 350) * level * pow(2, exposureOffset)
         // Replacing the shadow resets the shadow map, so only on a change.
-        if (light.shadow != nil) != inSun {
-            light.shadow = inSun ? DirectionalLightComponent.Shadow(maximumDistance: 6, depthBias: 3) : nil
+        // No sun shadow unless Full shadows are on.
+        let shadowed = inSun && effectiveVisual.shadows == .full
+        if (light.shadow != nil) != shadowed {
+            light.shadow = shadowed ? DirectionalLightComponent.Shadow(maximumDistance: 6, depthBias: 3) : nil
         }
         return true
     }

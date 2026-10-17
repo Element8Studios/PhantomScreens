@@ -99,7 +99,11 @@ struct RootView: View {
                 session.start()
             }
         }
-        .onChange(of: sheet) { _, value in session.menuOpen = value != nil }
+        .onChange(of: sheet) { _, value in
+            session.menuOpen = value != nil
+            // Review and Tips cover the camera completely: pause AR meanwhile.
+            session.setCameraCovered(value == .review || value == .help)
+        }
         .sheet(item: $sheet) { item in
             switch item {
             case .options:
@@ -154,10 +158,10 @@ private struct DetectionOverlay: View {
                         style: StrokeStyle(lineWidth: session.isLocked ? 4 : 2, lineJoin: .round,
                                            dash: session.isLocked ? [] : [8, 6]))
 
-                if let opening = session.detectedOpening {
-                    DimensionChip(text: Length.string(opening.width, unit: unit))
+                if let size = live.size {
+                    DimensionChip(text: Length.string(size.x, unit: unit))
                         .position(x: (quad[0].x + quad[1].x) / 2, y: min(quad[0].y, quad[1].y) - 22)
-                    DimensionChip(text: Length.string(opening.height, unit: unit))
+                    DimensionChip(text: Length.string(size.y, unit: unit))
                         .fixedSize()
                         .position(x: max(quad[1].x, quad[2].x) + 46, y: (quad[1].y + quad[2].y) / 2)
                 }
@@ -349,6 +353,15 @@ private struct PlacedControls: View {
                     Button { session.setAdjusting(true) } label: { Label("Edit corners", systemImage: "crop") }
                     Button { sheet = .designs } label: { Label("Saved designs", systemImage: "square.stack") }
                     Button { sheet = .help } label: { Label("Tips", systemImage: "questionmark.circle") }
+                    Picker(selection: Binding(get: { session.qualityPreset },
+                                              set: { if let preset = $0 { session.setQuality(preset) } })) {
+                        ForEach(QualityPreset.allCases) { preset in
+                            Label(preset.title, systemImage: preset.symbol).tag(Optional(preset))
+                        }
+                    } label: {
+                        Label("Quality: \(session.qualityPreset?.title ?? "Custom")", systemImage: "sparkles")
+                    }
+                    .pickerStyle(.menu)
                     Button { sheet = .settings } label: { Label("Settings", systemImage: "gearshape") }
                 } label: {
                     Image(systemName: "ellipsis")

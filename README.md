@@ -3,7 +3,7 @@
 An iPhone AR app that finds and measures a door, window or outdoor opening and shows
 a Phantom retractable screen in it at true scale, in real time. Built with SwiftUI,
 ARKit and RealityKit, with a Liquid Glass interface on iOS 26 (and a material fallback
-on iOS 17–25).
+on iOS 18–25).
 
 **To put it on your phone, follow [INSTALL.md](INSTALL.md).**
 
@@ -48,6 +48,12 @@ on iOS 17–25).
 5. **Review** shows a snapshot of the screen in the opening and every selection (tap one to
    change it), then **Request a Quote** sends it with your photos to a local Phantom expert,
    found with Apple Maps. Sent designs are kept in **Saved designs**.
+
+**Quality** (Low, Medium, High, Cinematic) is in the ••• menu and **Settings → Quality**,
+with occlusion, shadows, reflections and camera effects adjustable one by one. The app
+also does less work wherever it doesn't show: the AR session runs only the LiDAR features
+each step needs, pauses while Review or Tips covers the camera, and turns effects down
+(only while needed) when the iPhone is hot or in Low Power Mode.
 
 Everything for tuning and testing (detection, corners, placement nudges, lighting, white
 balance, a debug overlay) is under **Settings → Advanced**.

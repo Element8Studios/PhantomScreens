@@ -41,7 +41,7 @@ struct ReviewView: View {
 
     /// Photos the user took, or the snapshot if they took none.
     private var attachments: [UIImage] {
-        if !session.photos.isEmpty { return session.photos }
+        if !session.photoData.isEmpty { return session.photos }
         return preview.map { [$0] } ?? []
     }
 
@@ -273,7 +273,7 @@ struct ReviewView: View {
     }
 
     private func finish() {
-        store.add(name: resolvedOpeningName, config: session.config, photo: session.photos.last ?? preview)
+        store.add(name: resolvedOpeningName, config: session.config, photo: session.photoData.last.flatMap(UIImage.init(data:)) ?? preview)
         withAnimation { sent = true }
     }
 }

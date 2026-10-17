@@ -4,13 +4,22 @@
 # Needs a Mac with Xcode (Xcode 26 for Liquid Glass) and Homebrew.
 # Usage:  ./scripts/build-ipa.sh            (build number from the date)
 #         BUILD=7 ./scripts/build-ipa.sh    (build number 07)
+#         VARIANT=preview ./scripts/build-ipa.sh
+#             a separate "Phantom Preview" app (its own bundle ID), to install
+#             next to the regular one and compare
 # Output: "build/ipa/Phantom Screens v<version> build <NN>.ipa"
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION=$(grep -E 'MARKETING_VERSION:' project.yml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
 BUILD=$(printf "%02d" "${BUILD:-$(date +%y%m%d%H%M)}")
-echo "Phantom Screens $VERSION build $BUILD"
+NAME="Phantom Screens"
+VARIANT_SETTINGS=()
+if [ "${VARIANT:-}" = "preview" ]; then
+  NAME="Phantom Preview"
+  VARIANT_SETTINGS=(PRODUCT_BUNDLE_IDENTIFIER=com.phantomscreens.visualizer.preview "APP_DISPLAY_NAME=$NAME")
+fi
+echo "$NAME $VERSION build $BUILD"
 
 command -v xcodegen >/dev/null || brew install xcodegen
 xcodegen --quiet
@@ -24,6 +33,7 @@ if ! xcodebuild build \
     -derivedDataPath build/derived \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
     CURRENT_PROJECT_VERSION="$BUILD" \
+    ${VARIANT_SETTINGS[@]+"${VARIANT_SETTINGS[@]}"} \
     > build/build.log 2>&1; then
   grep -E "error:" build/build.log | cut -c1-300 | head -40
   echo "BUILD FAILED (full log: build/build.log)"
@@ -43,6 +53,6 @@ done
 
 rm -rf build/Payload && mkdir -p build/Payload build/ipa
 cp -R "$APP" build/Payload/
-IPA="build/ipa/Phantom Screens v$VERSION build $BUILD.ipa"
+IPA="build/ipa/$NAME v$VERSION build $BUILD.ipa"
 (cd build && zip -qr "../$IPA" Payload)
 echo "Built $IPA"

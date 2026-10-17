@@ -218,6 +218,20 @@ final class FeatureTests: XCTestCase {
         XCTAssertEqual(door.extent, 0.6, accuracy: 1e-6)
     }
 
+    func testQualityPresets() throws {
+        XCTAssertEqual(QualityPreset.matching(QualityPreset.high.settings), .high)
+        var custom = QualityPreset.cinematic.settings
+        custom.effects = .off
+        XCTAssertNil(QualityPreset.matching(custom), "a changed setting makes it Custom")
+        // Throttling caps each setting, and never raises one.
+        XCTAssertEqual(QualityPreset.cinematic.settings.capped(by: QualityPreset.medium.settings),
+                       QualityPreset.medium.settings)
+        XCTAssertEqual(QualityPreset.low.settings.capped(by: QualityPreset.high.settings),
+                       QualityPreset.low.settings)
+        let data = try JSONEncoder().encode(custom)
+        XCTAssertEqual(try JSONDecoder().decode(VisualQuality.self, from: data), custom)
+    }
+
     func testDesignsSavedWithVinylAsAMeshStillLoad() throws {
         let json = #"{"product":"motorized","mesh":"vinylMesh","width":3,"height":2.4}"#
         let config = try JSONDecoder().decode(ScreenConfig.self, from: Data(json.utf8))

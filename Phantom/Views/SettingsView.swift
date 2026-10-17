@@ -25,6 +25,8 @@ struct SettingsView: View {
                     NavigationLink("Tips for good measurements") { HelpList() }
                 }
 
+                qualitySection
+
                 Section("App icon") {
                     AppIconPicker()
                 }
@@ -55,6 +57,45 @@ struct SettingsView: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    /// Picking a preset sets the four below; changing one makes it Custom.
+    private var qualitySection: some View {
+        Section {
+            Picker("Quality", selection: Binding(get: { session.qualityPreset },
+                                                 set: { if let preset = $0 { session.setQuality(preset) } })) {
+                ForEach(QualityPreset.allCases) { preset in
+                    Text(preset.title).tag(Optional(preset))
+                }
+                if session.qualityPreset == nil {
+                    Text("Custom").tag(QualityPreset?.none)
+                }
+            }
+            if session.hasLiDAR {
+                Toggle("Hide behind real objects", isOn: $session.visual.occlusion)
+            }
+            Picker("Shadows", selection: $session.visual.shadows) {
+                ForEach(VisualQuality.Shadows.allCases) { Text($0.title).tag($0) }
+            }
+            Picker("Reflections", selection: $session.visual.reflections) {
+                ForEach(VisualQuality.Reflections.allCases) { Text($0.title).tag($0) }
+            }
+            Picker("Camera effects", selection: $session.visual.effects) {
+                ForEach(VisualQuality.CameraEffects.allCases) { Text($0.title).tag($0) }
+            }
+        } header: {
+            Text("Quality")
+        } footer: {
+            Text(qualityFooter)
+        }
+    }
+
+    private var qualityFooter: String {
+        var text = "Lower quality keeps the camera smoother and the phone cooler. Cinematic adds HDR reflections, depth of field and film grain."
+        if let throttle = session.throttle {
+            text += " Turned down to \(throttle.title) for now: your iPhone is warm or in Low Power Mode."
+        }
+        return text
     }
 }
 
@@ -105,7 +146,7 @@ struct AdvancedSettingsView: View {
             }
 
             Section {
-                Toggle("Realistic lighting and shadows", isOn: $session.realisticLighting)
+                Toggle("Realistic lighting", isOn: $session.realisticLighting)
                 Toggle("Match white to the room automatically", isOn: $session.autoMatchWhite)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -120,9 +161,6 @@ struct AdvancedSettingsView: View {
                 }
                 Picker("Paint finish", selection: $session.gloss) {
                     ForEach(PaintGloss.allCases) { Text($0.title).tag($0) }
-                }
-                if session.hasLiDAR {
-                    Toggle("Hide behind real objects", isOn: $session.occlusion)
                 }
                 Toggle("Outdoor sun shadows", isOn: $session.sunMode)
                 if session.sunMode {
@@ -161,7 +199,6 @@ struct AdvancedSettingsView: View {
             Section {
                 Toggle("Debug overlay", isOn: $session.showDebug)
                 Toggle("Keep re-checking white", isOn: $session.keepCheckingWhite)
-                Toggle("Turn off depth after placing", isOn: $session.depthOffWhenPlaced)
                 Button("Reset app…", role: .destructive) { confirmingReset = true }
                     .confirmationDialog("Reset Phantom Screens?", isPresented: $confirmingReset, titleVisibility: .visible) {
                         Button("Show the welcome screens again") { reset(settings: false, designs: false) }
@@ -175,7 +212,7 @@ struct AdvancedSettingsView: View {
             } header: {
                 Text("Developer")
             } footer: {
-                Text("The overlay shows frame rate, how the opening was found, whether a wall plane was used and indoors or outdoors. Keep re-checking white repeats the white match every few seconds as the light changes. Turning off depth after placing saves battery; it takes effect on the next placement.")
+                Text("The overlay shows frame rate, how the opening was found, whether a wall plane was used and indoors or outdoors. Keep re-checking white repeats the white match every few seconds as the light changes.")
             }
         }
         .navigationTitle("Advanced")

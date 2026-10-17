@@ -7,7 +7,7 @@ It takes about 15 minutes the first time.
 ## What you need
 
 - An iPhone with **LiDAR** for the best results: iPhone 12 Pro or Pro Max or later Pro models.
-  Other iPhones on iOS 17 or later still work, with less precise measuring.
+  Other iPhones on iOS 18 or later still work, with less precise measuring.
 - A **Windows PC or Mac**, used only for installing.
 - A **USB cable** for your iPhone.
 - An **Apple ID**. A free one works. A spare Apple ID is fine if you'd rather not use your main one.
@@ -21,6 +21,9 @@ Builds never run automatically. Start one when you want a new version, in any of
    Leave **Also run unit tests** off unless you need them (they take about four times longer).
 2. When the run has a green check, open it and download the artifact named like
    **Phantom Screens v3.0 build 01**. Unzip it to get the **.ipa**.
+3. To try a build next to the one you have, tick **Build as a separate preview app**. It
+   installs as **Phantom Preview**, with its own settings and saved designs, and doesn't
+   replace Phantom Screens. (With a free Apple ID it counts as one of your 3 apps.)
 
 **Codemagic** (a hosted Mac with free monthly minutes; no Mac needed)
 1. Sign in at codemagic.io with GitHub and add this repository. It reads `codemagic.yaml`.
@@ -29,6 +32,7 @@ Builds never run automatically. Start one when you want a new version, in any of
 **Your own Mac** (free, about 2 minutes)
 1. Install Xcode from the App Store and Homebrew from brew.sh.
 2. In Terminal, in the project folder: `./scripts/build-ipa.sh`
+   (or `VARIANT=preview ./scripts/build-ipa.sh` for the separate preview app)
 3. The .ipa is in `build/ipa/`.
 
 The build number shows in the app under **Settings → Version**.

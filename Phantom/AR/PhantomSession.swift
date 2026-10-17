@@ -16,10 +16,20 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     let live: LiveState
     let hasLiDAR: Bool
 
-    @Published private(set) var stage: Stage = .finding
+    @Published private(set) var stage: Stage = .finding {
+        didSet {
+            guard stage != oldValue else { return }
+            if stage == .finding { reflectionsWarm = false }
+            // A new screen's profile waits until it has faded in (stepReveal),
+            // so re-running the session can't stutter the reveal.
+            if stage != .placed { updateSessionProfile() }
+        }
+    }
 
     // Automatic detection
-    @Published private(set) var detectedOpening: Opening?
+    /// Not published: it changes with every detection pass. The overlay
+    /// reads the size from `live.detection`.
+    private(set) var detectedOpening: Opening?
     @Published private(set) var isLocked = false
     /// An outline is showing but not locked yet.
     @Published private(set) var hasCandidate = false
@@ -44,7 +54,9 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var hasDraggedHandle = false
 
     // Output
-    @Published private(set) var photos: [UIImage] = []
+    /// Photos for the quote, as JPEG (a decoded image would use ~20× the memory).
+    @Published private(set) var photoData: [Data] = []
+    var photos: [UIImage] { photoData.compactMap(UIImage.init(data:)) }
     @Published private(set) var flash = 0
     /// The product suggested for the measured opening (shown as "Suggested").
     @Published private(set) var suggestedProduct: Product?
@@ -70,10 +82,37 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         didSet { PhantomSession.store(showRectangle, "showRectangle") }
     }
     @Published var realisticLighting = PhantomSession.stored("realisticLighting", true) {
-        didSet { PhantomSession.store(realisticLighting, "realisticLighting"); applyRendering() }
+        didSet { PhantomSession.store(realisticLighting, "realisticLighting"); applyQuality() }
     }
-    @Published var occlusion = PhantomSession.stored("occlusion", true) {
-        didSet { PhantomSession.store(occlusion, "occlusion"); applyRendering() }
+    /// Rendering quality: Settings → Quality, or Quality in the ••• menu.
+    @Published var visual = PhantomSession.storedVisual() {
+        didSet {
+            guard visual != oldValue else { return }
+            if let data = try? JSONEncoder().encode(visual) {
+                UserDefaults.standard.set(data, forKey: "visualQuality")
+            }
+            applyQuality()
+        }
+    }
+    /// Effects are turned down to this while the phone is hot or in Low
+    /// Power Mode (see `updateThrottle`).
+    @Published private(set) var throttle: QualityPreset?
+    /// What's rendered: the chosen quality, turned down if needed.
+    var effectiveVisual: VisualQuality { throttle.map { visual.capped(by: $0.settings) } ?? visual }
+    /// The chosen preset, or nil for a custom mix.
+    var qualityPreset: QualityPreset? { QualityPreset.matching(visual) }
+
+    func setQuality(_ preset: QualityPreset) { visual = preset.settings }
+
+    private static func storedVisual() -> VisualQuality {
+        if let data = UserDefaults.standard.data(forKey: "visualQuality"),
+           let saved = try? JSONDecoder().decode(VisualQuality.self, from: data) {
+            return saved
+        }
+        var quality = QualityPreset.high.settings
+        // Earlier versions had only the occlusion switch.
+        quality.occlusion = stored("occlusion", true)
+        return quality
     }
     @Published var keepPlumb = PhantomSession.stored("keepPlumb", true) {
         didSet { PhantomSession.store(keepPlumb, "keepPlumb"); refit() }
@@ -121,7 +160,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     @Published var sunMode = PhantomSession.stored("sunMode", false) {
         didSet {
             PhantomSession.store(sunMode, "sunMode")
-            // Changing the world's alignment restarts tracking.
+            // Changing the world's alignment restarts tracking (one run, below).
+            runningProfile = nil
             if stage != .finding { remeasure() }
             start(reset: true)
         }
@@ -148,12 +188,6 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     /// Developer: frame rate, detection method and wall plane on screen.
     @Published var showDebug = PhantomSession.stored("showDebug", false) {
         didSet { PhantomSession.store(showDebug, "showDebug") }
-    }
-    /// Developer: stop LiDAR depth once a screen is placed, to save battery.
-    /// Off by default until tested on more phones (re-running ARKit's
-    /// configuration can cause a brief tracking hitch).
-    @Published var depthOffWhenPlaced = PhantomSession.stored("depthOffWhenPlaced", false) {
-        didSet { PhantomSession.store(depthOffWhenPlaced, "depthOffWhenPlaced") }
     }
     @Published var gloss = PaintGloss(rawValue: UserDefaults.standard.string(forKey: "gloss") ?? "") ?? .gloss {
         didSet { UserDefaults.standard.set(gloss.rawValue, forKey: "gloss"); applyRendering() }
@@ -182,14 +216,13 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     var menuOpen = false {
         didSet {
             guard menuOpen != oldValue else { return }
+            applyRenderOptions()
             if menuOpen {
                 // A sheet ends the bug test and any drag it interrupted
                 // (SwiftUI doesn't end a gesture a sheet cancels).
                 stopBugTest()
                 touchEnded()
             }
-            let effects: ARView.RenderOptions = [.disableDepthOfField, .disableMotionBlur]
-            if menuOpen { arView.renderOptions.formUnion(effects) } else { arView.renderOptions.subtract(effects) }
             // Style changes made behind the sheet get checked once it closes.
             if !menuOpen { whiteCheckSoon() }
         }
@@ -206,6 +239,14 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     private var firstCorner: SIMD3<Float> = .zero
     private var firstNormal: SIMD3<Float> = SIMD3(0, 0, 1)
     private var updateSubscription: Cancellable?
+    private var observers: Set<AnyCancellable> = []
+    private var runningProfile: SessionProfile?
+    private var isPaused = false
+    private var pauseTask: Task<Void, Never>?
+    /// Reflections started early because an opening was found.
+    private var reflectionsWarm = false
+    /// Image rectangles are looked for on every other detection pass.
+    private var rectanglePass = false
     private var lastDetection = Date.distantPast
     private var isDetecting = false
     private var stableCount = 0
@@ -224,7 +265,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
 
         arView.automaticallyConfigureSession = false
         arView.session.delegate = self
-        applyRendering()
+        observePower()
+        applyQuality()
         applyDebugOptions()
 
         let coaching = ARCoachingOverlayView()
@@ -246,29 +288,139 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             showToast("This iPhone doesn't support AR.", duration: 10)
             return
         }
+        if sunMode { locationProvider.request() }
+        pauseTask?.cancel()
+        isPaused = false
+        let profile = sessionProfile
+        arView.session.run(Self.configuration(for: profile),
+                           options: reset ? [.resetTracking, .removeExistingAnchors] : [])
+        runningProfile = profile
+    }
+
+    /// What the AR session runs. Each stage turns on only what it uses, so
+    /// the phone does less work without anything looking different.
+    private struct SessionProfile: Equatable {
+        var sunMode: Bool
+        var reconstruction: Bool
+        var depth: Bool
+        var reflections: VisualQuality.Reflections
+    }
+
+    private var sessionProfile: SessionProfile {
+        let quality = effectiveVisual
+        let placed = stage == .placed
+        // Once placed, the room mesh only serves occlusion and shadows on
+        // the real wall (while measuring, its labels find closed doors).
+        let meshUsed = quality.occlusion || (realisticLighting && quality.shadows == .full)
+        // Reflections only matter with a screen in view. They start once an
+        // opening is found, so they're ready by the time it appears.
+        let reflections = placed || stage == .corners || reflectionsWarm ? quality.reflections : .off
+        // Depth measures the opening; nothing reads it after placing.
+        return SessionProfile(sunMode: sunMode, reconstruction: hasLiDAR && (!placed || meshUsed),
+                              depth: !placed, reflections: reflections)
+    }
+
+    private static func configuration(for profile: SessionProfile) -> ARWorldTrackingConfiguration {
         let configuration = ARWorldTrackingConfiguration()
         // Sun mode needs true north to point the sun; this uses the compass.
-        configuration.worldAlignment = sunMode ? .gravityAndHeading : .gravity
-        if sunMode { locationProvider.request() }
+        configuration.worldAlignment = profile.sunMode ? .gravityAndHeading : .gravity
         configuration.planeDetection = [.horizontal, .vertical]
-        configuration.environmentTexturing = .automatic
-        if hasLiDAR {
-            // Labels door and window surfaces, which finds closed doors.
+        if profile.reconstruction {
+            // Labels door and window surfaces, which finds closed doors. Kept
+            // with labels after placing: switching modes rebuilds the mesh.
             configuration.sceneReconstruction =
                 ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification)
                 ? .meshWithClassification : .mesh
         }
-        // One depth stream is enough; smoothed depth is steadier for edges.
-        // Depth is only needed while measuring (see depthOffWhenPlaced).
-        let wantsDepth = !(depthOffWhenPlaced && stage == .placed)
-        if wantsDepth, ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
-            configuration.frameSemantics.insert(.smoothedSceneDepth)
-        } else if wantsDepth, ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
-            configuration.frameSemantics.insert(.sceneDepth)
+        if profile.depth {
+            // One depth stream is enough; smoothed depth is steadier for edges.
+            if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
+                configuration.frameSemantics.insert(.smoothedSceneDepth)
+            } else if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+                configuration.frameSemantics.insert(.sceneDepth)
+            }
         }
-        configuration.wantsHDREnvironmentTextures = true
+        configuration.environmentTexturing = profile.reflections == .off ? .none : .automatic
+        configuration.wantsHDREnvironmentTextures = profile.reflections == .hdr
         configuration.isLightEstimationEnabled = true
-        arView.session.run(configuration, options: reset ? [.resetTracking, .removeExistingAnchors] : [])
+        return configuration
+    }
+
+    /// Re-runs the session (no reset: tracking and anchors stay) when the
+    /// stage or quality needs different features.
+    private func updateSessionProfile() {
+        guard let running = runningProfile, !isPaused else { return }
+        let profile = sessionProfile
+        guard profile != running else { return }
+        arView.session.run(Self.configuration(for: profile))
+        runningProfile = profile
+    }
+
+    // MARK: - Covered camera
+
+    /// Pauses AR while a full sheet hides the camera (after a moment, so a
+    /// sheet's snapshot is taken first) and resumes when it closes. ARKit
+    /// keeps the anchors, so the screen comes back where it was.
+    func setCameraCovered(_ covered: Bool) {
+        pauseTask?.cancel()
+        if covered {
+            pauseTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let self, !Task.isCancelled, self.runningProfile != nil else { return }
+                self.arView.session.pause()
+                self.isPaused = true
+            }
+        } else if isPaused {
+            isPaused = false
+            let profile = sessionProfile
+            arView.session.run(Self.configuration(for: profile))
+            runningProfile = profile
+        }
+    }
+
+    // MARK: - Heat and battery
+
+    /// Turns effects down only while needed: Medium in Low Power Mode or when
+    /// the phone gets hot, Low when it's critical. Back up when it cools.
+    private func observePower() {
+        let center = NotificationCenter.default
+        for name in [ProcessInfo.thermalStateDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
+            center.publisher(for: name)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.updateThrottle() } }
+                .store(in: &observers)
+        }
+        // At launch, quietly (the welcome screens may be up).
+        updateThrottle(announce: false)
+    }
+
+    private func updateThrottle(announce: Bool = true) {
+        let info = ProcessInfo.processInfo
+        let cap: QualityPreset?
+        switch info.thermalState {
+        case .critical: cap = .low
+        case .serious: cap = .medium
+        default: cap = info.isLowPowerModeEnabled ? .medium : nil
+        }
+        guard cap != throttle else { return }
+        let before = effectiveVisual
+        let previous = throttle
+        throttle = cap
+        guard effectiveVisual != before else { return }
+        applyQuality()
+        guard announce else { return }
+        func rank(_ preset: QualityPreset?) -> Int {
+            preset.flatMap { QualityPreset.allCases.firstIndex(of: $0) } ?? QualityPreset.allCases.count
+        }
+        if cap == nil {
+            showToast("Effects are back to your Quality setting.")
+        } else if rank(cap) > rank(previous) {
+            showToast("Your iPhone is cooling down, so some effects are back.")
+        } else if info.thermalState == .serious || info.thermalState == .critical {
+            showToast("Your iPhone is warm, so effects are turned down for now.", duration: 3.5)
+        } else {
+            showToast("Low Power Mode is on, so effects are turned down.", duration: 3.5)
+        }
     }
 
     // MARK: - Rendering
@@ -281,14 +433,54 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
+    /// Applies the quality settings (and any throttle) to everything.
+    private func applyQuality() {
+        applyRendering()
+        applyRenderOptions()
+        updateSessionProfile()
+    }
+
     private func applyRendering() {
+        let quality = effectiveVisual
         var options = arView.environment.sceneUnderstanding.options
-        if hasLiDAR && occlusion { options.insert(.occlusion) } else { options.remove(.occlusion) }
-        // Lets the real-world mesh receive shadows from the screen.
-        if hasLiDAR && realisticLighting { options.insert(.receivesLighting) } else { options.remove(.receivesLighting) }
+        if hasLiDAR && quality.occlusion { options.insert(.occlusion) } else { options.remove(.occlusion) }
+        // Lets the real-world mesh receive the screen's shadow (Full shadows).
+        if hasLiDAR && realisticLighting && quality.shadows == .full {
+            options.insert(.receivesLighting)
+        } else {
+            options.remove(.receivesLighting)
+        }
         arView.environment.sceneUnderstanding.options = options
         keyLight?.isEnabled = realisticLighting
-        door?.setAppearance(gloss: gloss, castsShadows: realisticLighting, colorGain: shownGain)
+        if usingSunLight {
+            updateLighting(force: true)
+        } else {
+            keyLight?.shadow = keyShadow
+        }
+        door?.setAppearance(gloss: gloss, castsShadows: castsContactShadows, colorGain: shownGain)
+    }
+
+    /// Camera effects on the rendered screen. Off behind a menu, where
+    /// nothing moves and the camera view is covered.
+    private func applyRenderOptions() {
+        let effects = effectiveVisual.effects
+        let managed: ARView.RenderOptions = [.disableDepthOfField, .disableCameraGrain, .disableMotionBlur]
+        var off: ARView.RenderOptions = []
+        if menuOpen || effects < .cinematic { off.formUnion([.disableDepthOfField, .disableCameraGrain]) }
+        if menuOpen || effects < .motionBlur { off.insert(.disableMotionBlur) }
+        arView.renderOptions = arView.renderOptions.subtracting(managed).union(off)
+    }
+
+    private static let indoorShadow = DirectionalLightComponent.Shadow(maximumDistance: 5, depthBias: 3)
+
+    /// The key light's shadow on the real wall (Full shadows only).
+    private var keyShadow: DirectionalLightComponent.Shadow? {
+        effectiveVisual.shadows == .full ? Self.indoorShadow : nil
+    }
+
+    /// Soft contact shadows under the hardware (Soft and Full).
+    private var castsContactShadows: Bool {
+        realisticLighting && effectiveVisual.shadows >= .contact
     }
 
     /// Follows ARKit's estimate of the room's brightness. The light stays
@@ -313,7 +505,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         if usingSunLight, let parent = light.parent {
             // Back to the soft indoor key light above and in front.
             light.look(at: .zero, from: SIMD3(0.6, 2.4, 1.8), relativeTo: parent)
-            light.shadow = DirectionalLightComponent.Shadow(maximumDistance: 5, depthBias: 3)
+            light.shadow = keyShadow
             usingSunLight = false
         }
         light.light.color = .white
@@ -346,7 +538,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             // A new material for every painted part each frame is costly;
             // steps under 1% aren't visible.
             if let door, shownGain == colorGain || simd_length(shownGain - door.colorGain) > 0.01 {
-                door.setAppearance(gloss: gloss, castsShadows: realisticLighting, colorGain: shownGain)
+                door.setAppearance(gloss: gloss, castsShadows: castsContactShadows, colorGain: shownGain)
             }
         }
     }
@@ -390,6 +582,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         }
         showToast("AR stopped unexpectedly. Restarting…", duration: 3)
         isDetecting = false
+        runningProfile = nil   // one restart, below
         if stage != .finding { remeasure() }
         clearDetection()
         start(reset: true)
@@ -415,7 +608,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             runDetectionIfDue()
         case .corners:
             // Two raycasts per tick; 30 per second is plenty for the crosshair.
-            guard Date().timeIntervalSince(lastCornerTick) > 1.0 / 30 else { return }
+            guard !menuOpen, Date().timeIntervalSince(lastCornerTick) > 1.0 / 30 else { return }
             lastCornerTick = Date()
             let hit = centerRaycast()
             if (hit != nil) != crosshairOnSurface { crosshairOnSurface = hit != nil }
@@ -483,7 +676,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private func runDetectionIfDue() {
-        guard autoDetect, !isDetecting,
+        guard autoDetect, !isDetecting, !menuOpen,
               Date().timeIntervalSince(lastDetection) > 0.3,
               let frame = arView.session.currentFrame,
               case .normal = frame.camera.trackingState else { return }
@@ -523,9 +716,12 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
                     meshes.append(mesh)
                 }
             }
+            // The image-rectangle fallback is the costliest step; every other
+            // pass is plenty for an outline that has to hold steady anyway.
+            rectanglePass.toggle()
             let input = DepthOpeningDetector.Input(depth: depth, camera: camera, start: start,
                                                    floorY: floorHeight(frame), walls: walls, meshes: meshes,
-                                                   image: frame.capturedImage)
+                                                   image: rectanglePass ? frame.capturedImage : nil)
             visionQueue.async { [weak self] in
                 let found = DepthOpeningDetector.detect(input)
                 Task { @MainActor [weak self] in
@@ -637,10 +833,16 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         live.detection.quad = quad
         if !hasCandidate { hasCandidate = true }
         detectedOpening = opening
+        let size = SIMD2(opening.width, opening.height)
+        if live.detection.size.map({ simd_distance($0, size) > 0.004 }) ?? true { live.detection.size = size }
 
         let locked = stableCount >= 3
         if locked && !isLocked {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        if locked && !reflectionsWarm {
+            reflectionsWarm = true
+            updateSessionProfile()
         }
         if isLocked != locked { isLocked = locked }
     }
@@ -651,6 +853,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             live.detection.quad = []
             hasCandidate = false
             detectedOpening = nil
+            live.detection.size = nil
             isLocked = false
         }
     }
@@ -823,6 +1026,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
 
     private func clearDetection() {
         live.detection.quad = []
+        live.detection.size = nil
         hasCandidate = false
         detectedOpening = nil
         isLocked = false
@@ -860,7 +1064,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         anchorEntity.addChild(frame)
 
         let door = ScreenDoorEntity(config: config)
-        door.setAppearance(gloss: gloss, castsShadows: realisticLighting, colorGain: shownGain)
+        door.setAppearance(gloss: gloss, castsShadows: castsContactShadows, colorGain: shownGain)
         frame.addChild(door)
         // Hidden until ARKit tracks the anchor, then faded in (see stepReveal).
         frame.isEnabled = false
@@ -868,7 +1072,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         // Soft key light from above and in front, casting shadows on the wall.
         let light = DirectionalLight()
         light.light.intensity = 900
-        light.shadow = DirectionalLightComponent.Shadow(maximumDistance: 5, depthBias: 3)
+        light.shadow = keyShadow
         frame.addChild(light)
         light.look(at: .zero, from: SIMD3(0.6, 2.4, 1.8), relativeTo: frame)
         light.isEnabled = realisticLighting
@@ -905,21 +1109,17 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             guard anchored || Date().timeIntervalSince(placedAt) > 1 else { return }
             revealStart = Date()
             frame.isEnabled = true
-            if #available(iOS 18.0, *) {
-                frame.components.set(OpacityComponent(opacity: 0))
-            }
+            frame.components.set(OpacityComponent(opacity: 0))
             animate(to: 0.65)
             return
         }
         let t = Float(min(Date().timeIntervalSince(began) / 0.45, 1))
-        if #available(iOS 18.0, *) {
-            frame.components.set(OpacityComponent(opacity: t * t * (3 - 2 * t)))
-        }
+        let faded: Float = t * t * (3 - 2 * t)
+        frame.components.set(OpacityComponent(opacity: faded))
         guard t >= 1 else { return }
-        if #available(iOS 18.0, *) {
-            frame.components.remove(OpacityComponent.self)
-        }
+        frame.components.remove(OpacityComponent.self)
         isRevealed = true
+        updateSessionProfile()
         if autoMatchWhite { matchWhiteToTrim(announce: false, delay: 0.2) }
     }
 
@@ -1288,8 +1488,10 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 // Keep a reduced copy for the quote; the full photo is in Photos.
-                self.photos.append(image.downscaled(maxDimension: 1600))
-                if self.photos.count > 8 { self.photos.removeFirst(self.photos.count - 8) }
+                if let jpeg = image.downscaled(maxDimension: 1600).jpegData(compressionQuality: 0.85) {
+                    self.photoData.append(jpeg)
+                    if self.photoData.count > 8 { self.photoData.removeFirst(self.photoData.count - 8) }
+                }
                 self.flash += 1
                 self.showToast("Saved to Photos")
             }
@@ -1311,16 +1513,15 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         showDiagonal = true
         showRectangle = true
         realisticLighting = true
-        occlusion = true
+        visual = QualityPreset.high.settings
         keepPlumb = true
         snapCorners = true
         brightness = 0
         autoMatchWhite = true
         keepCheckingWhite = false
         showDebug = false
-        depthOffWhenPlaced = false
         advancedProductOptions = false
-        photos = []
+        photoData = []
         hasDraggedHandle = false
         gloss = .gloss
         sunExposure = .auto
@@ -1391,6 +1592,8 @@ final class DebugLive: ObservableObject {
 @MainActor
 final class DetectionLive: ObservableObject {
     @Published var quad: [CGPoint] = []
+    /// The found opening's width and height, for the dimension chips.
+    @Published var size: SIMD2<Float>?
     /// Projected tap target while finding an opening.
     @Published var target: CGPoint?
 }

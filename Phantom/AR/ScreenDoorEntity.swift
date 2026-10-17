@@ -768,40 +768,18 @@ final class ScreenDoorEntity: Entity {
     }
 
     /// Sizes `entity` (a unit quad) to `width` × `height`, with the weave
-    /// repeating every `tile` metres. iOS 18 scales the texture; iOS 17's
-    /// unlit materials can't, so the repeat goes into the quad's UVs instead
-    /// (rounded to a quarter tile, so the quads can be reused).
+    /// repeating every `tile` metres by scaling its texture.
     private static func applyWeave(_ weave: UnlitMaterial, to entity: ModelEntity, width: Float, height: Float) {
         entity.scale = SIMD3(width, height, 1)
-        if #available(iOS 18.0, *) {
-            var material = weave
-            let scale = SIMD2<Float>(width / tile, height / tile)
-            material.textureCoordinateTransform = .init(offset: .zero, scale: scale)
-            entity.model?.materials = [material]
-        } else {
-            let repeats = SIMD2<Int>(Int((width / tile * 4).rounded()), Int((height / tile * 4).rounded()))
-            entity.model?.mesh = tiledQuad(repeats)
-            entity.model?.materials = [weave]
-        }
-    }
-
-    /// iOS 17: unit quads with the weave's repeat (in quarter tiles) built in.
-    private static var tiledQuads: [SIMD2<Int>: MeshResource] = [:]
-
-    private static func tiledQuad(_ quarters: SIMD2<Int>) -> MeshResource {
-        if let cached = tiledQuads[quarters] { return cached }
-        if tiledQuads.count > 400 { tiledQuads.removeAll() }
-        let uv = SIMD2<Float>(Float(max(quarters.x, 1)), Float(max(quarters.y, 1))) / 4
-        let mesh = quad(uvScale: uv)
-        tiledQuads[quarters] = mesh
-        return mesh
+        var material = weave
+        let scale = SIMD2<Float>(width / tile, height / tile)
+        material.textureCoordinateTransform = .init(offset: .zero, scale: scale)
+        entity.model?.materials = [material]
     }
 
     private func addShadow(to entity: ModelEntity) {
         guard castsShadows else { return }
-        if #available(iOS 18.0, *) {
-            entity.components.set(GroundingShadowComponent(castsShadow: true))
-        }
+        entity.components.set(GroundingShadowComponent(castsShadow: true))
     }
 
     // MARK: - Meshes
