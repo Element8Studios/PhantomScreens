@@ -212,10 +212,12 @@ final class ScreenDoorEntity: Entity {
         if newConfig.finish != old.finish || newConfig.customColorHex != old.customColorHex {
             repaint()
         }
-        if newConfig.mesh != old.mesh {
-            let material = Self.material(for: newConfig.mesh)
-            for leaf in leaves where leaf.screen.model != nil {
-                leaf.screen.model?.materials = [material]
+        if newConfig.mesh != old.mesh || newConfig.meshColor != old.meshColor {
+            let material = Self.material(for: newConfig.mesh, color: newConfig.meshColor)
+            let band = Self.material(for: .insect, color: newConfig.meshColor)
+            for leaf in leaves {
+                if leaf.screen.model != nil { leaf.screen.model?.materials = [material] }
+                leaf.vinyl?.band?.model?.materials = [band]
             }
         }
     }
@@ -229,6 +231,7 @@ final class ScreenDoorEntity: Entity {
         c.customMatchedToTrim = false
         // Vinyl panels are built from parts; meshes just swap material.
         c.mesh = config.product.isMotorized && config.mesh.isVinyl ? config.mesh : .insect
+        c.meshColor = .black
         c.colorUndecided = false
         c.closure = .latching
         c.motorControl = .remote
@@ -277,30 +280,72 @@ final class ScreenDoorEntity: Entity {
         return material
     }
 
-    private static let vinylMaterial: PhysicallyBasedMaterial = {
-        var material = PhysicallyBasedMaterial()
-        material.baseColor = .init(tint: UIColor(white: 0.05, alpha: 1))
-        material.roughness = .init(floatLiteral: 0.6)
-        return material
-    }()
+    /// Rich black, semi-gloss: the mesh-lock corners and a black vinyl
+    /// panel's border. (Very dark, smoother paint so highlights stay tight
+    /// instead of washing it grey.)
+    private static let vinylMaterial = fabric(.black)
 
-    /// Woven fabric border of a vinyl panel.
-    private static let fabricMaterial: PhysicallyBasedMaterial = {
+    private static func fabric(_ color: VinylColor) -> PhysicallyBasedMaterial {
         var material = PhysicallyBasedMaterial()
-        material.baseColor = .init(tint: UIColor(white: 0.09, alpha: 1))
-        material.roughness = .init(floatLiteral: 0.85)
+        material.baseColor = .init(tint: color.uiColor)
+        material.roughness = .init(floatLiteral: color == .black ? 0.42 : 0.5)
+        material.specular = .init(floatLiteral: 0.35)
+        material.clearcoat = .init(floatLiteral: 0.25)
+        material.clearcoatRoughness = .init(floatLiteral: 0.3)
         return material
-    }()
+    }
 
-    /// Clear vinyl: faintly tinted, glossy, mostly see-through.
+    /// Clear vinyl: see-through and glossy, with a gentle ripple in the
+    /// surface so reflections bend and slide as you move, like real vinyl.
     private static let clearVinylMaterial: PhysicallyBasedMaterial = {
         var material = PhysicallyBasedMaterial()
-        material.baseColor = .init(tint: UIColor(red: 0.86, green: 0.9, blue: 0.92, alpha: 1))
-        material.roughness = .init(floatLiteral: 0.05)
+        material.baseColor = .init(tint: UIColor(red: 0.5, green: 0.55, blue: 0.57, alpha: 1))
+        material.roughness = .init(floatLiteral: 0.03)
+        material.specular = .init(floatLiteral: 1)
         material.clearcoat = .init(floatLiteral: 1)
-        material.clearcoatRoughness = .init(floatLiteral: 0.02)
-        material.blending = .transparent(opacity: 0.16)
+        material.clearcoatRoughness = .init(floatLiteral: 0.01)
+        if let ripple = rippleTexture {
+            material.normal = .init(texture: .init(ripple))
+        }
+        material.blending = .transparent(opacity: 0.2)
         return material
+    }()
+
+    /// Metres covered by one repeat of the vinyl ripple.
+    private static let ripplePeriod: Float = 1.1
+
+    /// A tiling normal map of soft, uneven waves.
+    private static let rippleTexture: TextureResource? = {
+        let n = 256
+        // (cycles across, cycles down, amplitude, phase); whole cycles tile.
+        let waves: [(Float, Float, Float, Float)] = [
+            (1, 3, 1, 0.3), (2, -1, 0.7, 1.9), (3, 5, 0.35, 4.1), (-4, 2, 0.25, 2.6), (5, 7, 0.12, 0.8),
+        ]
+        var bytes = [UInt8](repeating: 255, count: n * n * 4)
+        let strength: Float = 0.012
+        for y in 0..<n {
+            for x in 0..<n {
+                let u = Float(x) / Float(n), v = Float(y) / Float(n)
+                var dx: Float = 0, dy: Float = 0
+                for (kx, ky, a, phase) in waves {
+                    let c = cos(2 * .pi * (kx * u + ky * v) + phase) * a * 2 * .pi
+                    dx += c * kx
+                    dy += c * ky
+                }
+                let normal = simd_normalize(SIMD3(-dx * strength, -dy * strength, 1))
+                let i = (y * n + x) * 4
+                bytes[i] = UInt8((normal.x * 0.5 + 0.5) * 255)
+                bytes[i + 1] = UInt8((normal.y * 0.5 + 0.5) * 255)
+                bytes[i + 2] = UInt8((normal.z * 0.5 + 0.5) * 255)
+            }
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+              let image = CGImage(width: n, height: n, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                                  provider: provider, decode: nil, shouldInterpolate: true,
+                                  intent: .defaultIntent) else { return nil }
+        return try? TextureResource.generate(from: image, options: .init(semantic: .normal))
     }()
 
     /// Stainless cable and chrome floor brackets (not painted).
@@ -564,10 +609,11 @@ final class ScreenDoorEntity: Entity {
                 content.addChild(entity)
                 return entity
             }
-            vinyl = VinylParts(left: part(Self.fabricMaterial), right: part(Self.fabricMaterial),
-                               top: part(Self.fabricMaterial), bottom: part(Self.fabricMaterial),
+            let border = Self.fabric(config.vinylColor)
+            vinyl = VinylParts(left: part(border), right: part(border), top: part(border), bottom: part(border),
                                clear: part(Self.clearVinylMaterial),
-                               band: config.mesh == .vinylMesh ? part(Self.material(for: .insect)) : nil)
+                               band: config.mesh == .vinylMesh
+                                   ? part(Self.material(for: .insect, color: config.meshColor)) : nil)
         }
 
         content.addChild(screen)
@@ -587,7 +633,7 @@ final class ScreenDoorEntity: Entity {
     }
 
     private func layoutLeaves() {
-        let material = Self.material(for: config.mesh)
+        let material = Self.material(for: config.mesh, color: config.meshColor)
         // Tracks are in this entity's space; the parts are offset by the mount.
         let offset = content.position
         tracks = []
@@ -684,7 +730,21 @@ final class ScreenDoorEntity: Entity {
         place(vinyl.right, from: 0, to: full, x: sideX, width: border)
         place(vinyl.bottom, from: 0, to: border, x: 0, width: innerW)
         place(vinyl.top, from: full - border, to: full, x: 0, width: innerW)
-        place(vinyl.clear, from: border + band, to: full - border, x: 0, width: innerW)
+        // The clear part gets real-size UVs measured on the panel, so the
+        // ripples travel down with it as it unrolls.
+        let clearBottom = border + band
+        let clearTop = min(full - border, shown)
+        let period = Self.ripplePeriod
+        if clearTop - clearBottom > 0.002,
+           let quad = Self.quadMesh(width: innerW, height: clearTop - clearBottom,
+                                    u: (-innerW / 2 / period, innerW / 2 / period),
+                                    v: (clearTop / period, clearBottom / period)) {
+            vinyl.clear.model?.mesh = quad
+            vinyl.clear.isEnabled = true
+            vinyl.clear.position = SIMD3(0, bottomY + (clearBottom + clearTop) / 2, 0)
+        } else {
+            vinyl.clear.isEnabled = false
+        }
         if let mesh = vinyl.band {
             // The weave keeps its real scale, so the band gets its own quad.
             let top = min(border + band, shown)
@@ -852,12 +912,16 @@ final class ScreenDoorEntity: Entity {
     /// A double-sided quad whose UVs repeat the weave every `tile` metres,
     /// so the mesh keeps its real-world scale as the screen extends.
     private static func screenMesh(width: Float, height: Float) -> MeshResource? {
+        quadMesh(width: width, height: height, u: (0, width / tile), v: (0, height / tile))
+    }
+
+    /// A double-sided quad centred on the origin. `u` runs left to right;
+    /// `v` gives the top edge's value, then the bottom's.
+    private static func quadMesh(width: Float, height: Float, u: (Float, Float), v: (Float, Float)) -> MeshResource? {
         let hw = width / 2
         let hh = height / 2
-        let u = width / tile
-        let v = height / tile
         let corners: [SIMD3<Float>] = [[-hw, -hh, 0], [hw, -hh, 0], [hw, hh, 0], [-hw, hh, 0]]
-        let uvs: [SIMD2<Float>] = [[0, v], [u, v], [u, 0], [0, 0]]
+        let uvs: [SIMD2<Float>] = [[u.0, v.1], [u.1, v.1], [u.1, v.0], [u.0, v.0]]
 
         var descriptor = MeshDescriptor(name: "screen")
         descriptor.positions = MeshBuffers.Positions(corners + corners)
@@ -866,28 +930,31 @@ final class ScreenDoorEntity: Entity {
             Array(repeating: SIMD3<Float>(0, 0, -1), count: 4)
         )
         descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(uvs + uvs)
+        // Explicit tangents, for the clear vinyl's normal map.
+        descriptor.tangents = MeshBuffers.Tangents(Array(repeating: SIMD3<Float>(1, 0, 0), count: 8))
         descriptor.primitives = .triangles([0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6])
         return try? MeshResource.generate(from: [descriptor])
     }
 
     // MARK: - Textures
 
-    private static var materials: [MeshType: UnlitMaterial] = [:]
+    private static var materials: [String: UnlitMaterial] = [:]
 
-    private static func material(for type: MeshType) -> UnlitMaterial {
-        if let cached = materials[type] { return cached }
-        var material = UnlitMaterial(color: UIColor(white: 0.12, alpha: 0.6))
-        if let texture = weaveTexture(for: type) {
+    private static func material(for type: MeshType, color: MeshColor) -> UnlitMaterial {
+        let key = type.rawValue + "-" + color.rawValue
+        if let cached = materials[key] { return cached }
+        var material = UnlitMaterial(color: color.uiColor.withAlphaComponent(0.6))
+        if let texture = weaveTexture(for: type, color: color) {
             material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(texture))
         }
         material.blending = .transparent(opacity: 0.99)
-        materials[type] = material
+        materials[key] = material
         return material
     }
 
-    /// One tile of charcoal weave on a transparent background. Denser meshes
-    /// get thicker strands and a tinted fill.
-    private static func weaveTexture(for type: MeshType) -> TextureResource? {
+    /// One tile of weave in the mesh color on a transparent background.
+    /// Denser meshes get thicker strands and a tinted fill.
+    private static func weaveTexture(for type: MeshType, color: MeshColor) -> TextureResource? {
         let params: (strands: Int, lineWidth: CGFloat, lineAlpha: CGFloat, fillAlpha: CGFloat)
         switch type {
         case .insect, .clearVinyl, .vinylMesh: params = (2, 5, 0.82, 0)
@@ -903,10 +970,10 @@ final class ScreenDoorEntity: Entity {
             let cg = ctx.cgContext
             cg.clear(CGRect(origin: .zero, size: size))
             if params.fillAlpha > 0 {
-                cg.setFillColor(UIColor(white: 0.08, alpha: params.fillAlpha).cgColor)
+                cg.setFillColor(color.uiColor.withAlphaComponent(params.fillAlpha).cgColor)
                 cg.fill(CGRect(origin: .zero, size: size))
             }
-            cg.setStrokeColor(UIColor(white: 0.1, alpha: params.lineAlpha).cgColor)
+            cg.setStrokeColor(color.uiColor.withAlphaComponent(params.lineAlpha).cgColor)
             cg.setLineWidth(params.lineWidth)
             let step = size.width / CGFloat(params.strands)
             for i in 0..<params.strands {

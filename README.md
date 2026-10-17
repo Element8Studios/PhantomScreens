@@ -27,18 +27,21 @@ on iOS 17–25).
 4. **Customize** covers the options on phantomscreens.com, with everything pre-chosen. The
    option bar above the toolbar shows each current choice; tapping one opens a short tabbed
    sheet on it, so the screen stays in view:
-   - **Screen type**: Door Screen or Door Screen with Mesh Lock, and the retract side.
+   - **Screen type**: Door Screen or Door Screen with Mesh Lock, and the retract side; for
+     outdoor spaces, Motorized Screen or Motorized Vinyl Screen.
    - **Measurement**: the measured size and the matching height and width bands.
    - **Closure**: Latching Handle (preselected), Latching Handle with Latch Stop, Magnet Handle.
    - **Motor & Control** (motorized): electric motor (solar coming soon); remote, wall switch
      or smart home; side tracks or stainless cable guides with chrome floor brackets; and,
      with Settings → Advanced → Advanced product customization, a headbox recessed into the
      ceiling.
-   - **Mesh**: Insect, or a custom mesh (pet, sun & heat, privacy). Motorized screens can also
-     have a clear vinyl panel in a fabric border, with or without a band of mesh.
+   - **Mesh**: Insect, or a custom mesh (pet, sun & heat, privacy). On a **Motorized Vinyl
+     Screen** (chosen under Type) this tab becomes **Vinyl**: clear vinyl in a fabric border,
+     or clear vinyl above a band of mesh.
    - **Color**: the ten standard colors, wood grain, a custom color (pick it, or tap the
      eyedropper to match any real color with the camera) or "decide later". The closest
-     standard color to your trim is suggested.
+     standard color to your trim is suggested. Below the frame colors: mesh color (Black,
+     Charcoal or Grey, on every product) and, on vinyl screens, a black or white border.
 
    Options say **Included** or **Additional cost**; there are no prices, since they vary by
    region.

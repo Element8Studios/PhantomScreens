@@ -254,6 +254,40 @@ enum MotorType: String, CaseIterable, Identifiable, Codable {
     var isAvailable: Bool { self == .electric }
 }
 
+/// The color of the mesh strands, on every product.
+/// (Check the names against the website's list.)
+enum MeshColor: String, CaseIterable, Identifiable, Codable {
+    case black, charcoal, grey
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .black: return "Black"
+        case .charcoal: return "Charcoal"
+        case .grey: return "Grey"
+        }
+    }
+
+    /// The strand color as rendered.
+    var uiColor: UIColor {
+        switch self {
+        case .black: return UIColor(white: 0.03, alpha: 1)
+        case .charcoal: return UIColor(white: 0.14, alpha: 1)
+        case .grey: return UIColor(white: 0.4, alpha: 1)
+        }
+    }
+}
+
+/// The fabric border of a motorized vinyl panel.
+enum VinylColor: String, CaseIterable, Identifiable, Codable {
+    case black, white
+
+    var id: String { rawValue }
+    var title: String { self == .black ? "Black" : "White" }
+    var uiColor: UIColor { self == .black ? UIColor(white: 0.02, alpha: 1) : UIColor(white: 0.93, alpha: 1) }
+}
+
 /// What keeps a motorized screen straight as it travels.
 enum MotorGuide: String, CaseIterable, Identifiable, Codable {
     case tracks, cables
@@ -399,6 +433,12 @@ enum OptionStep: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// The tab's name for this configuration: Mesh becomes Vinyl on a
+    /// Motorized Vinyl Screen.
+    func tabTitle(for config: ScreenConfig) -> String {
+        self == .mesh && config.isVinyl ? "Vinyl" : tabTitle
+    }
+
     /// The steps that apply to a product.
     static func steps(for product: Product) -> [OptionStep] {
         allCases.filter { step in
@@ -469,6 +509,9 @@ struct ScreenConfig: Equatable, Codable {
     /// "I'm unsure, I'll decide later." The preview keeps showing `finish`.
     var colorUndecided = false
     var mesh: MeshType = .insect
+    var meshColor: MeshColor = .black
+    /// Motorized vinyl: the fabric border's color.
+    var vinylColor: VinylColor = .black
     var mount: Mount = .inside
     var motorControl: MotorControl = .remote
     var motor: MotorType = .electric
@@ -503,6 +546,8 @@ struct ScreenConfig: Equatable, Codable {
         finish = try c.decodeIfPresent(FrameFinish.self, forKey: .finish) ?? defaults.finish
         colorUndecided = try c.decodeIfPresent(Bool.self, forKey: .colorUndecided) ?? false
         mesh = try c.decodeIfPresent(MeshType.self, forKey: .mesh) ?? defaults.mesh
+        meshColor = try c.decodeIfPresent(MeshColor.self, forKey: .meshColor) ?? defaults.meshColor
+        vinylColor = try c.decodeIfPresent(VinylColor.self, forKey: .vinylColor) ?? defaults.vinylColor
         mount = try c.decodeIfPresent(Mount.self, forKey: .mount) ?? defaults.mount
         motorControl = try c.decodeIfPresent(MotorControl.self, forKey: .motorControl) ?? defaults.motorControl
         motor = try c.decodeIfPresent(MotorType.self, forKey: .motor) ?? defaults.motor
@@ -516,6 +561,14 @@ struct ScreenConfig: Equatable, Codable {
     }
 
     var hasMeshLock: Bool { meshLock && product.offersMeshLock }
+
+    /// A Motorized Vinyl Screen: a vinyl panel instead of mesh.
+    var isVinyl: Bool { product.isMotorized && mesh.isVinyl }
+    /// Any mesh showing (a vinyl panel may have a band of mesh).
+    var showsMesh: Bool { !isVinyl || mesh == .vinylMesh }
+
+    var typeTitle: String { isVinyl ? "Motorized Vinyl Screen" : product.title }
+    var typeShortTitle: String { isVinyl ? "Motorized Vinyl" : product.shortTitle }
 
     var frameUIColor: UIColor {
         finish == .custom ? (UIColor(hex: customColorHex) ?? finish.uiColor) : finish.uiColor
@@ -551,13 +604,13 @@ struct ScreenConfig: Equatable, Codable {
             case "Measured size", "Height", "Width", "Size", "Mount": step = .measurement
             case "Closure": step = .closure
             case "Control", "Motor", "Guides", "Headbox": step = .control
-            case "Mesh": step = .mesh
-            case "Color": step = .color
+            case "Mesh", "Vinyl": step = .mesh
+            case "Color", "Mesh color", "Vinyl color": step = .color
             default: step = nil
             }
             items.append(LineItem(label: label, value: value, tag: tag, step: step))
         }
-        add("Product", product.title)
+        add("Product", typeTitle)
         if product.offersMeshLock {
             add("Type", hasMeshLock ? "Door Screen with Mesh Lock" : "Door Screen")
         }
@@ -573,12 +626,14 @@ struct ScreenConfig: Equatable, Codable {
             add("Guides", guide.title)
             if recessedHeadbox { add("Headbox", "Recessed into the ceiling") }
         }
-        add("Mesh", mesh.title, mesh.tag)
+        add(isVinyl ? "Vinyl" : "Mesh", mesh.title, mesh.tag)
         if colorUndecided {
             add("Color", "Undecided")
         } else {
             add("Color", finishTitle, finish.tag)
         }
+        if showsMesh { add("Mesh color", meshColor.title) }
+        if isVinyl { add("Vinyl color", vinylColor.title) }
         add("Mount", mount.title)
         return items
     }

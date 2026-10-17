@@ -459,7 +459,7 @@ private struct OptionBar: View {
                                 .font(.system(size: 17, weight: .semibold))
                                 .frame(height: 22)
                         }
-                        Text(step.tabTitle)
+                        Text(step.tabTitle(for: config))
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
                     }
@@ -469,7 +469,7 @@ private struct OptionBar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(step.tabTitle): \(value(step))")
+                .accessibilityLabel("\(step.tabTitle(for: config)): \(value(step))")
                 .accessibilityHint("Change this option")
             }
         }
@@ -488,7 +488,7 @@ private struct OptionBar: View {
         case .measurement:
             return Length.size(width: config.width, height: config.height, unit: unit)
         case .type:
-            return config.product.shortTitle + (config.hasMeshLock ? " + lock" : "")
+            return config.typeShortTitle + (config.hasMeshLock ? " + lock" : "")
         }
     }
 }

@@ -263,6 +263,26 @@ final class FeatureTests: XCTestCase {
         XCTAssertFalse(config.recessedHeadbox)
     }
 
+    func testMotorizedVinylIsAType() {
+        var config = ScreenConfig()
+        config.product = .motorized
+        XCTAssertFalse(config.isVinyl)
+        XCTAssertEqual(OptionStep.mesh.tabTitle(for: config), "Mesh")
+        config.mesh = .clearVinyl
+        XCTAssertTrue(config.isVinyl)
+        XCTAssertFalse(config.showsMesh)
+        XCTAssertEqual(config.typeTitle, "Motorized Vinyl Screen")
+        XCTAssertEqual(OptionStep.mesh.tabTitle(for: config), "Vinyl")
+        let lines = config.lineItems(unit: .inches)
+        XCTAssertEqual(lines.first { $0.label == "Vinyl" }?.step, .mesh)
+        XCTAssertEqual(lines.first { $0.label == "Vinyl color" }?.step, .color)
+        XCTAssertNil(lines.first { $0.label == "Mesh color" })
+        config.mesh = .vinylMesh
+        XCTAssertTrue(config.lineItems(unit: .inches).contains { $0.label == "Mesh color" })
+        // Every product has a mesh color.
+        XCTAssertEqual(ScreenConfig().lineItems(unit: .inches).first { $0.label == "Mesh color" }?.value, "Black")
+    }
+
     @MainActor
     func testVinylCablesAndRecessedHeadboxBuild() {
         var config = ScreenConfig()
@@ -273,6 +293,10 @@ final class FeatureTests: XCTestCase {
         let door = ScreenDoorEntity(config: config)
         door.setExtent(0.5)
         door.setExtent(1)
+        config.vinylColor = .white
+        config.meshColor = .grey
+        door.update(config)
+        door.setExtent(0.3)
         XCTAssertEqual(ScreenDoorEntity.reach(for: config).top, ScreenDoorEntity.recessedSlot, accuracy: 1e-6)
         XCTAssertEqual(ScreenDoorEntity.reach(for: config).left, ScreenDoorEntity.cableGuide, accuracy: 1e-6)
         XCTAssertFalse(door.paintSamplePoints.isEmpty)

@@ -33,7 +33,7 @@ struct BuildSheet: View {
         VStack(spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(config.product.title)
+                    Text(config.typeTitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(title(current))
@@ -92,7 +92,7 @@ struct BuildSheet: View {
                                 .font(.system(size: 16, weight: .semibold))
                                 .frame(height: 22)
                         }
-                        Text(step.tabTitle)
+                        Text(step.tabTitle(for: config))
                             .font(.caption2.weight(.semibold))
                     }
                     .foregroundStyle(isCurrent ? Color.phantomCyan : Color.secondary)
@@ -107,7 +107,7 @@ struct BuildSheet: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(step.tabTitle)
+                .accessibilityLabel(step.tabTitle(for: config))
                 .accessibilityAddTraits(isCurrent ? .isSelected : [])
             }
         }
@@ -122,7 +122,7 @@ struct BuildSheet: View {
         case .measurement: return "Measurement"
         case .closure: return "Closure"
         case .control: return "Motor & Control"
-        case .mesh: return config.product.isMotorized ? "Mesh or Vinyl" : "Mesh Type"
+        case .mesh: return config.isVinyl ? "Vinyl Type" : "Mesh Type"
         case .color: return "Color"
         }
     }
@@ -151,8 +151,18 @@ struct BuildSheet: View {
             ForEach(config.product.category.products) { product in
                 OptionCard(title: product.title, detail: product.detail,
                            badge: product == session.suggestedProduct ? "Suggested" : nil,
-                           symbol: product.symbol, selected: config.product == product) {
+                           symbol: product.symbol, selected: config.product == product && !config.isVinyl) {
                     session.config.product = product
+                    if session.config.mesh.isVinyl { session.config.mesh = .insect }
+                }
+                if product.isMotorized {
+                    OptionCard(title: "Motorized Vinyl Screen",
+                               detail: "Clear vinyl in a fabric border keeps out wind, rain and cold, so the space is usable in any season.",
+                               tag: .additional, symbol: "cloud.rain",
+                               selected: config.isVinyl) {
+                        session.config.product = .motorized
+                        if !session.config.mesh.isVinyl { session.config.mesh = .clearVinyl }
+                    }
                 }
             }
 
@@ -315,7 +325,24 @@ struct BuildSheet: View {
             .accessibilityAddTraits(.isHeader)
     }
 
+    @ViewBuilder
     private var meshStep: some View {
+        if config.isVinyl {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(MeshType.vinylOptions) { vinyl in
+                    OptionCard(title: vinyl.title, detail: vinyl.detail,
+                               selected: config.mesh == vinyl) { session.config.mesh = vinyl }
+                }
+                Text("Border and mesh colors are under Color.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            plainMeshStep
+        }
+    }
+
+    private var plainMeshStep: some View {
         VStack(alignment: .leading, spacing: 8) {
             OptionCard(title: MeshType.insect.title, detail: MeshType.insect.detail, tag: .included,
                        selected: config.mesh == .insect) { session.config.mesh = .insect }
@@ -331,13 +358,6 @@ struct BuildSheet: View {
                 Text(config.mesh.detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-            if config.product.isMotorized {
-                groupLabel("Vinyl")
-                ForEach(MeshType.vinylOptions) { vinyl in
-                    OptionCard(title: vinyl.title, detail: vinyl.detail, tag: vinyl.tag,
-                               selected: config.mesh == vinyl) { session.config.mesh = vinyl }
-                }
             }
         }
     }
@@ -365,6 +385,7 @@ struct BuildSheet: View {
                 .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
 
+            groupLabel("Frame color")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 8) {
                 ForEach(FrameFinish.standard) { finish in
                     let selected = config.finish == finish && !config.colorUndecided
@@ -429,6 +450,27 @@ struct BuildSheet: View {
             OptionCard(title: "I'm unsure, I'll decide later",
                        selected: config.colorUndecided) { session.config.colorUndecided.toggle() }
 
+            if config.isVinyl {
+                groupLabel("Vinyl border")
+                HStack(spacing: 18) {
+                    ForEach(VinylColor.allCases) { color in
+                        colorChoice(color.title, color.uiColor, selected: config.vinylColor == color) {
+                            session.config.vinylColor = color
+                        }
+                    }
+                }
+            }
+            if config.showsMesh {
+                groupLabel("Mesh color")
+                HStack(spacing: 18) {
+                    ForEach(MeshColor.allCases) { color in
+                        colorChoice(color.title, color.uiColor, selected: config.meshColor == color) {
+                            session.config.meshColor = color
+                        }
+                    }
+                }
+            }
+
             VStack(alignment: .leading, spacing: 4) {
                 Text("A disclaimer about color").font(.subheadline.weight(.semibold))
                 Text("The way these colors look on your screen may differ from the coated samples or installed product. Having trouble choosing? Talk to your local expert to see true color swatches.")
@@ -448,6 +490,21 @@ struct BuildSheet: View {
             return "Custom Color \(config.customColorHex), \(source). Additional cost; your expert color-matches it on site."
         }
         return "Wood grain and custom colors are an additional cost. Tap the eyedropper and aim at anything, like your trim, to match its color."
+    }
+
+    /// A plain color swatch button with a caption.
+    private func colorChoice(_ title: String, _ color: UIColor, selected: Bool,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            specialSwatch(title, selected: selected) {
+                Circle()
+                    .fill(Color(color))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.35), lineWidth: 1))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     /// A round swatch with a caption and a selection ring.
