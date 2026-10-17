@@ -244,5 +244,74 @@ final class FeatureTests: XCTestCase {
         XCTAssertEqual(items.first { $0.label == "Height" }?.step, .measurement)
         XCTAssertEqual(OptionStep.steps(for: .window), [.color, .mesh, .measurement, .type])
         XCTAssertEqual(OptionStep.steps(for: .motorized), [.color, .mesh, .control, .measurement, .type])
+        var motorized = ScreenConfig()
+        motorized.product = .motorized
+        motorized.guide = .cables
+        let lines = motorized.lineItems(unit: .inches)
+        XCTAssertEqual(lines.first { $0.label == "Motor" }?.step, .control)
+        XCTAssertEqual(lines.first { $0.label == "Guides" }?.value, "Cable guides")
+        XCTAssertNil(lines.first { $0.label == "Headbox" })
+    }
+
+    func testMotorizedOptions() {
+        XCTAssertEqual(MeshType.customOptions, [.pet, .sun, .privacy])
+        XCTAssertEqual(MeshType.vinylOptions, [.clearVinyl, .vinylMesh])
+        XCTAssertFalse(MotorType.solar.isAvailable)
+        let config = ScreenConfig()
+        XCTAssertEqual(config.motor, .electric)
+        XCTAssertEqual(config.guide, .tracks)
+        XCTAssertFalse(config.recessedHeadbox)
+    }
+
+    @MainActor
+    func testVinylCablesAndRecessedHeadboxBuild() {
+        var config = ScreenConfig()
+        config.product = .motorized
+        config.mesh = .vinylMesh
+        config.guide = .cables
+        config.recessedHeadbox = true
+        let door = ScreenDoorEntity(config: config)
+        door.setExtent(0.5)
+        door.setExtent(1)
+        XCTAssertEqual(ScreenDoorEntity.reach(for: config).top, ScreenDoorEntity.recessedSlot, accuracy: 1e-6)
+        XCTAssertEqual(ScreenDoorEntity.reach(for: config).left, ScreenDoorEntity.cableGuide, accuracy: 1e-6)
+        XCTAssertFalse(door.paintSamplePoints.isEmpty)
+    }
+
+    @MainActor
+    func testBugsGetInOnlyWhereTheScreenIsOpen() {
+        var config = ScreenConfig()
+        config.product = .single
+        let door = ScreenDoorEntity(config: config)
+        door.setExtent(1)
+        XCTAssertTrue(door.isCovered(x: 0, y: 0))
+        door.setExtent(0)
+        XCTAssertFalse(door.isCovered(x: 0, y: 0))
+
+        config.product = .motorized
+        let motorized = ScreenDoorEntity(config: config)
+        motorized.setExtent(0.5)
+        // Lowered halfway: the top half is screened, the bottom half open.
+        XCTAssertTrue(motorized.isCovered(x: 0, y: config.height * 0.25))
+        XCTAssertFalse(motorized.isCovered(x: 0, y: -config.height * 0.25))
+    }
+
+    @MainActor
+    func testTrimSeenAgainstTheRoomsWhite() {
+        func linear(_ srgb: SIMD3<Float>) -> SIMD3<Float> {
+            SIMD3(pow(srgb.x, 2.2), pow(srgb.y, 2.2), pow(srgb.z, 2.2))
+        }
+        let warm = SIMD3<Float>(1, 0.78, 0.5)     // warm bulbs
+        let white = linear(SIMD3(0.95, 0.945, 0.925))
+        let almond = linear(SIMD3(0.90, 0.85, 0.77))
+        let room = white * warm * 0.8
+        func suggested(_ paint: SIMD3<Float>, shade: Float) -> FrameFinish {
+            let seen = PhantomSession.relative(paint * warm * 0.8 * shade, to: room)
+            return FrameFinish.closest(to: PhantomSession.srgbColor(seen))
+        }
+        XCTAssertEqual(suggested(white, shade: 1), .classicWhite)
+        XCTAssertEqual(suggested(white, shade: 0.5), .classicWhite, "white trim in shadow stays white")
+        XCTAssertEqual(suggested(almond, shade: 1), .sliveredAlmond)
+        XCTAssertEqual(suggested(linear(SIMD3(0.45, 0.45, 0.45)), shade: 1), .coastalGrey)
     }
 }

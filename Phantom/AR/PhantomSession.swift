@@ -31,6 +31,9 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     // Placed
     @Published var config = ScreenConfig() {
         didSet {
+            // Vinyl panels are only made for motorized screens. (Assigning
+            // here doesn't re-run didSet, so this comes first.)
+            if config.mesh.isVinyl, !config.product.isMotorized { config.mesh = .insect }
             door?.update(config)
             syncSizeFromConfig()
             if config.finish != oldValue.finish || config.customColorHex != oldValue.customColorHex {
@@ -40,9 +43,6 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     }
     @Published private(set) var scannedSize: SIMD2<Float>?
     @Published private(set) var hasDraggedHandle = false
-    @Published var comparing = false {
-        didSet { door?.isEnabled = !comparing }
-    }
 
     // Output
     @Published private(set) var photos: [UIImage] = []
@@ -137,6 +137,15 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     @Published var keepCheckingWhite = PhantomSession.stored("keepCheckingWhite", false) {
         didSet { PhantomSession.store(keepCheckingWhite, "keepCheckingWhite") }
     }
+    /// Shows product options normally decided during installation, like a
+    /// motorized headbox recessed into the ceiling.
+    @Published var advancedProductOptions = PhantomSession.stored("advancedProductOptions", false) {
+        didSet { PhantomSession.store(advancedProductOptions, "advancedProductOptions") }
+    }
+    /// The bug test is running (see BugTest.swift).
+    @Published var bugTestRunning = false
+    /// The flying bugs while the bug test runs.
+    var bugTest: BugTest?
     /// Developer: frame rate, detection method and wall plane on screen.
     @Published var showDebug = PhantomSession.stored("showDebug", false) {
         didSet { PhantomSession.store(showDebug, "showDebug") }
@@ -182,7 +191,8 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     }
     private var adjustIndex: Int?
     private var touchMode: TouchMode = .none
-    private var frameEntity: Entity?
+    /// The fitted opening's space; the door and bug test live in it.
+    private(set) var frameEntity: Entity?
     private var cornerPoints: [SIMD3<Float>] = []
     private var scannedCorners: [SIMD3<Float>] = []
     private var isRefitting = false
@@ -400,6 +410,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
             if (hit != nil) != crosshairOnSurface { crosshairOnSurface = hit != nil }
             updateCornerPreview(hit)
         case .placed:
+            stepBugs()
             stepReveal()
             stepAppearance()
             updateLighting()
@@ -857,7 +868,6 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         doorAnchor = anchorEntity
         frameEntity = frame
         isAdjusting = false
-        comparing = false
 
         cornerPoints = opening.corners
         refit()
@@ -906,6 +916,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         whiteMatchTask?.cancel()
         isMatchingWhite = false
         isCheckingWhite = false
+        stopBugTest()
         doorAnchor?.removeFromParent()
         doorAnchor = nil
         frameEntity = nil
@@ -1075,8 +1086,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
     func setAdjusting(_ on: Bool) {
         isAdjusting = on
         adjustIndex = nil
-        if on { comparing = false }
-        if !on { door?.isEnabled = !comparing }
+        if !on { door?.isEnabled = true }
     }
 
     /// Corner positions on screen, kept current while a screen is placed so a
@@ -1099,11 +1109,10 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         guard stage == .placed, pickerPurpose == nil else { return }
         if touchMode == .none {
             let corner = nearestCorner(to: location, within: isAdjusting ? 70 : 55)
-            let bar = isAdjusting || comparing ? nil : nearestBar(to: location, within: 90)
+            let bar = isAdjusting ? nil : nearestBar(to: location, within: 90)
             if let corner, corner.distance <= (bar?.distance ?? .infinity) {
                 // Outside corner editing, the handles show only while the finger is down.
                 if !isAdjusting {
-                    comparing = false
                     isDraggingCorner = true
                 }
                 adjustIndex = corner.index
@@ -1133,7 +1142,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
 
     func touchEnded() {
         if touchMode == .corner {
-            door?.isEnabled = !comparing
+            door?.isEnabled = true
             if isDraggingCorner { isDraggingCorner = false }
             whiteCheckSoon()
         }
@@ -1290,6 +1299,7 @@ final class PhantomSession: NSObject, ObservableObject, ARSessionDelegate {
         keepCheckingWhite = false
         showDebug = false
         depthOffWhenPlaced = false
+        advancedProductOptions = false
         gloss = .gloss
         sunExposure = .auto
         if let id = Bundle.main.bundleIdentifier {

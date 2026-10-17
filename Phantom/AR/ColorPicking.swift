@@ -13,7 +13,6 @@ extension PhantomSession {
     func beginPicking(_ purpose: PickerPurpose) {
         guard stage == .placed else { return }
         setAdjusting(false)
-        comparing = false
         live.picker.color = nil
         pickerPurpose = purpose
     }

@@ -69,6 +69,14 @@ struct AdvancedSettingsView: View {
     var body: some View {
         Form {
             Section {
+                Toggle("Advanced product customization", isOn: $session.advancedProductOptions)
+            } header: {
+                Text("Products")
+            } footer: {
+                Text("Shows options usually decided during installation, like a motorized headbox recessed into the ceiling.")
+            }
+
+            Section {
                 Toggle("Find openings automatically", isOn: $session.autoDetect)
                 Toggle("Wait for a tap before finding", isOn: $session.tapToTarget)
                     .disabled(!session.autoDetect)

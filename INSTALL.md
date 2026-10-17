@@ -83,7 +83,8 @@ The build number shows in the app under **Settings → Version**.
    (Color, Mesh, Handle, Size, Type); tap one to change it. Customize opens short so the screen
    stays in view, with tabs to switch options. In **Color**, the eyedropper matches any real
    color with the camera.
-5. Hold the **compare** button (top right) to see the opening without the screen.
+5. Tap the **ladybug** (top right) for a bug test: bugs fly at the opening and bounce off
+   wherever the screen is closed.
 6. **Photo** saves a picture. **Review** shows a snapshot and every selection (tap one to change it),
    then **Request a Quote** sends it to a local Phantom expert, who quotes the price for your region.
 

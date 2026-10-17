@@ -187,8 +187,9 @@ enum MotorControl: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// What fills the screen: a mesh, or (motorized screens) a vinyl panel.
 enum MeshType: String, CaseIterable, Identifiable, Codable {
-    case insect, pet, sun, privacy
+    case insect, pet, sun, privacy, clearVinyl, vinylMesh
 
     var id: String { rawValue }
 
@@ -198,6 +199,8 @@ enum MeshType: String, CaseIterable, Identifiable, Codable {
         case .pet: return "Pet mesh"
         case .sun: return "Sun & heat mesh"
         case .privacy: return "Privacy mesh"
+        case .clearVinyl: return "Clear vinyl"
+        case .vinylMesh: return "Clear vinyl with mesh band"
         }
     }
 
@@ -207,6 +210,8 @@ enum MeshType: String, CaseIterable, Identifiable, Codable {
         case .pet: return "Pet"
         case .sun: return "Sun & heat"
         case .privacy: return "Privacy"
+        case .clearVinyl: return "Clear vinyl"
+        case .vinylMesh: return "Vinyl + mesh"
         }
     }
 
@@ -216,13 +221,52 @@ enum MeshType: String, CaseIterable, Identifiable, Codable {
         case .pet: return "Tougher mesh that stands up to paws and claws."
         case .sun: return "Cuts glare and heat on sunny openings."
         case .privacy: return "Daytime privacy while air still flows through."
+        case .clearVinyl: return "A clear window in a fabric border. Keeps out wind and rain and holds in warmth."
+        case .vinylMesh: return "A clear vinyl window above a band of mesh, for views with some airflow."
         }
     }
 
-    /// Everything but insect mesh is a custom mesh.
+    /// Everything but insect mesh costs extra.
     var isCustom: Bool { self != .insect }
+    var isVinyl: Bool { self == .clearVinyl || self == .vinylMesh }
     var tag: PriceTag { isCustom ? .additional : .included }
-    static var customOptions: [MeshType] { allCases.filter(\.isCustom) }
+    /// Custom meshes (not vinyl), offered on every product.
+    static var customOptions: [MeshType] { allCases.filter { $0.isCustom && !$0.isVinyl } }
+    /// Vinyl panels, offered on motorized screens.
+    static var vinylOptions: [MeshType] { allCases.filter(\.isVinyl) }
+}
+
+/// What drives a motorized screen.
+enum MotorType: String, CaseIterable, Identifiable, Codable {
+    case electric, solar
+
+    var id: String { rawValue }
+
+    var title: String { self == .electric ? "Electric motor" : "Solar motor" }
+
+    var detail: String {
+        self == .electric
+            ? "Wired to power by your installer."
+            : "Charged by a small solar panel; no wiring needed."
+    }
+
+    /// Solar isn't offered yet.
+    var isAvailable: Bool { self == .electric }
+}
+
+/// What keeps a motorized screen straight as it travels.
+enum MotorGuide: String, CaseIterable, Identifiable, Codable {
+    case tracks, cables
+
+    var id: String { rawValue }
+
+    var title: String { self == .tracks ? "Side tracks" : "Cable guides" }
+
+    var detail: String {
+        self == .tracks
+            ? "The screen's edges run in tracks: the most protection from bugs and wind."
+            : "Slim stainless cables guide the bottom bar: almost invisible."
+    }
 }
 
 enum RetractSide: String, CaseIterable, Identifiable, Codable {
@@ -338,7 +382,7 @@ enum OptionStep: String, CaseIterable, Identifiable, Hashable {
         case .color: return "Color"
         case .mesh: return "Mesh"
         case .closure: return "Handle"
-        case .control: return "Control"
+        case .control: return "Motor"
         case .measurement: return "Size"
         case .type: return "Type"
         }
@@ -427,6 +471,11 @@ struct ScreenConfig: Equatable, Codable {
     var mesh: MeshType = .insect
     var mount: Mount = .inside
     var motorControl: MotorControl = .remote
+    var motor: MotorType = .electric
+    var guide: MotorGuide = .tracks
+    /// Motorized: the headbox is recessed into the ceiling (planned during
+    /// installation; offered with advanced product customization).
+    var recessedHeadbox = false
     /// Opening size in metres.
     var width: Float = 0.91
     var height: Float = 2.03
@@ -456,6 +505,9 @@ struct ScreenConfig: Equatable, Codable {
         mesh = try c.decodeIfPresent(MeshType.self, forKey: .mesh) ?? defaults.mesh
         mount = try c.decodeIfPresent(Mount.self, forKey: .mount) ?? defaults.mount
         motorControl = try c.decodeIfPresent(MotorControl.self, forKey: .motorControl) ?? defaults.motorControl
+        motor = try c.decodeIfPresent(MotorType.self, forKey: .motor) ?? defaults.motor
+        guide = try c.decodeIfPresent(MotorGuide.self, forKey: .guide) ?? defaults.guide
+        recessedHeadbox = try c.decodeIfPresent(Bool.self, forKey: .recessedHeadbox) ?? false
         width = try c.decodeIfPresent(Float.self, forKey: .width) ?? defaults.width
         height = try c.decodeIfPresent(Float.self, forKey: .height) ?? defaults.height
         extent = try c.decodeIfPresent(Float.self, forKey: .extent) ?? defaults.extent
@@ -485,6 +537,7 @@ struct ScreenConfig: Equatable, Codable {
         if product.offersClosure { parts.append(closure.shortTitle) }
         if hasMeshLock { parts.append("Mesh lock") }
         if product.isMotorized { parts.append(motorControl.title) }
+        if product.isMotorized, guide == .cables { parts.append("Cable guides") }
         return parts.joined(separator: " · ")
     }
 
@@ -497,7 +550,7 @@ struct ScreenConfig: Equatable, Codable {
             case "Product", "Type", "Retracts to the": step = .type
             case "Measured size", "Height", "Width", "Size", "Mount": step = .measurement
             case "Closure": step = .closure
-            case "Control": step = .control
+            case "Control", "Motor", "Guides", "Headbox": step = .control
             case "Mesh": step = .mesh
             case "Color": step = .color
             default: step = nil
@@ -514,7 +567,12 @@ struct ScreenConfig: Equatable, Codable {
         if !fitsProduct { add("Size", "Larger than standard, custom quote") }
         if product.hasRetractSide { add("Retracts to the", side.title.lowercased()) }
         if product.offersClosure { add("Closure", closure.title, closure.tag) }
-        if product.isMotorized { add("Control", motorControl.title) }
+        if product.isMotorized {
+            add("Motor", motor.title)
+            add("Control", motorControl.title)
+            add("Guides", guide.title)
+            if recessedHeadbox { add("Headbox", "Recessed into the ceiling") }
+        }
         add("Mesh", mesh.title, mesh.tag)
         if colorUndecided {
             add("Color", "Undecided")

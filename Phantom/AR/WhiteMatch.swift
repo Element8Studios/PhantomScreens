@@ -36,7 +36,6 @@ extension PhantomSession {
             isMatchingWhite = true
             whitePickedByUser = trimPoint != nil
         }
-        if comparing { comparing = false }
         lastWhiteCheck = Date()
         whiteMatchTask = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
@@ -52,9 +51,12 @@ extension PhantomSession {
                       let result = self.measureWhite(in: image, trimPoint: trimPoint) else { break }
                 outcome = trimPoint == nil ? "White balanced to the room's light." : "White matched to the surface you picked."
                 if trimPoint == nil, let surround = result.surround {
-                    self.live.trim.color = Self.srgbColor(surround)
-                    self.live.trim.lightKelvin = self.arView.session.currentFrame?.lightEstimate
-                        .map { Float($0.ambientColorTemperature) }
+                    // Seen relative to the room's own white (measured in the
+                    // same picture), the color of the light drops out: white
+                    // trim under warm bulbs comes out white, almond still
+                    // comes out warmer than the room's white.
+                    self.live.trim.color = Self.srgbColor(Self.relative(surround, to: result.trim))
+                    self.live.trim.lightKelvin = nil
                 }
                 // A background check ignores small differences (no jitter).
                 let deadband: Float = background && round == 0 ? 0.12 : 0
@@ -91,7 +93,7 @@ extension PhantomSession {
     /// every few seconds when nothing else is going on.
     func checkWhiteIfDue() {
         guard autoMatchWhite, keepCheckingWhite, isRevealed, !whitePickedByUser, !isMatchingWhite, !isCheckingWhite,
-              !menuOpen, !comparing, !isAdjusting, !isDraggingCorner, pickerPurpose == nil,
+              !menuOpen, !isAdjusting, !isDraggingCorner, pickerPurpose == nil,
               Date().timeIntervalSince(lastWhiteCheck) > whiteCheckInterval else { return }
         matchWhiteToTrim(announce: false, background: true)
     }
@@ -278,6 +280,18 @@ extension PhantomSession {
         let ranked = samples.sorted { whiteness($0) > whiteness($1) }
         let keep = max(3, Int(Float(ranked.count) * fraction))
         return Array(ranked.prefix(keep))
+    }
+
+    /// `color` as it would look if `white` (seen in the same picture) were
+    /// Classic White: the light's tint drops out, and brightness is measured
+    /// against the room's white rather than the camera's exposure, so white
+    /// trim in shadow stays white while grey still reads grey.
+    static func relative(_ color: SIMD3<Float>, to white: SIMD3<Float>) -> SIMD3<Float> {
+        let tint = pointwiseMax(white, SIMD3(repeating: 0.0001)) / max(luma(white), 0.0001)
+        let corrected = color / tint
+        let brightness = min(luma(color) / max(luma(white), 0.0001), 1)
+        // 0.88: Classic White's brightness, in linear light.
+        return corrected * (0.88 * brightness / max(luma(corrected), 0.0001))
     }
 
     static func mean(_ values: [SIMD3<Float>]) -> SIMD3<Float> {

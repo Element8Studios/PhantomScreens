@@ -100,7 +100,7 @@ struct HelpList: View {
             }
             Section("Your screen") {
                 Label("Drag the pull handle (or the bottom bar of a motorized screen) to open and close it.", systemImage: "hand.draw")
-                Label("Hold the compare button to see the opening without it.", systemImage: "square.split.2x1")
+                Label("Tap the ladybug for a bug test: bugs bounce off wherever the screen is closed.", systemImage: "ladybug")
                 Label("Everything starts chosen for you. Tap Color, Mesh, Handle, Size or Type in the bar above the toolbar to change it.", systemImage: "slider.horizontal.3")
                 Label("In Color, the eyedropper matches any real color with the camera.", systemImage: "eyedropper")
                 Label("Colors on screen are approximate. Your local expert brings real swatches.", systemImage: "paintpalette")

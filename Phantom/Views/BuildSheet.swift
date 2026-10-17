@@ -121,8 +121,8 @@ struct BuildSheet: View {
         case .type: return config.product.category == .door ? "Select Door Screen Type" : "Select Screen Type"
         case .measurement: return "Measurement"
         case .closure: return "Closure"
-        case .control: return "Control"
-        case .mesh: return "Mesh Type"
+        case .control: return "Motor & Control"
+        case .mesh: return config.product.isMotorized ? "Mesh or Vinyl" : "Mesh Type"
         case .color: return "Color"
         }
     }
@@ -271,28 +271,73 @@ struct BuildSheet: View {
 
     private var controlStep: some View {
         VStack(alignment: .leading, spacing: 8) {
+            groupLabel("Motor")
+            ForEach(MotorType.allCases) { motor in
+                OptionCard(title: motor.title, detail: motor.detail,
+                           badge: motor.isAvailable ? nil : "Coming soon",
+                           selected: config.motor == motor) { session.config.motor = motor }
+                    .disabled(!motor.isAvailable)
+                    .opacity(motor.isAvailable ? 1 : 0.5)
+            }
+            groupLabel("Control")
             ForEach(MotorControl.allCases) { control in
                 OptionCard(title: control.title, detail: control.detail,
                            selected: config.motorControl == control) { session.config.motorControl = control }
             }
+            groupLabel("Guides")
+            ForEach(MotorGuide.allCases) { guide in
+                OptionCard(title: guide.title, detail: guide.detail,
+                           selected: config.guide == guide) { session.config.guide = guide }
+            }
+            if session.advancedProductOptions || config.recessedHeadbox {
+                groupLabel("Installation")
+                Toggle(isOn: Binding(get: { session.config.recessedHeadbox },
+                                     set: { session.config.recessedHeadbox = $0 })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Recessed into the ceiling").font(.subheadline.weight(.semibold))
+                        Text("The headbox hides in the ceiling; usually planned when the space is built or renovated.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .tint(Color.phantomCyan)
+                .padding(12)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
         }
+    }
+
+    private func groupLabel(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.top, 6)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var meshStep: some View {
         VStack(alignment: .leading, spacing: 8) {
             OptionCard(title: MeshType.insect.title, detail: MeshType.insect.detail, tag: .included,
                        selected: config.mesh == .insect) { session.config.mesh = .insect }
+            let customMesh = config.mesh.isCustom && !config.mesh.isVinyl
             OptionCard(title: "Custom mesh", detail: "Pet, sun & heat, or privacy mesh.", tag: .additional,
-                       selected: config.mesh.isCustom) {
-                if !config.mesh.isCustom { session.config.mesh = .pet }
+                       selected: customMesh) {
+                if !customMesh { session.config.mesh = .pet }
             }
-            if config.mesh.isCustom {
+            if customMesh {
                 FlowChips(items: MeshType.customOptions, selected: config.mesh, title: \.shortTitle) {
                     session.config.mesh = $0
                 }
                 Text(config.mesh.detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            if config.product.isMotorized {
+                groupLabel("Vinyl")
+                ForEach(MeshType.vinylOptions) { vinyl in
+                    OptionCard(title: vinyl.title, detail: vinyl.detail, tag: vinyl.tag,
+                               selected: config.mesh == vinyl) { session.config.mesh = vinyl }
+                }
             }
         }
     }

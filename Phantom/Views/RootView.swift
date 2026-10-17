@@ -360,12 +360,10 @@ private struct PlacedControls: View {
                 }
                 .accessibilityLabel("More")
                 Spacer()
-                GlassPill(text: session.comparing
-                          ? "Before"
-                          : Length.size(width: session.config.width, height: session.config.height, unit: unit))
+                GlassPill(text: Length.size(width: session.config.width, height: session.config.height, unit: unit))
                 Spacer()
                 if !session.isAdjusting {
-                    CompareButton(session: session)
+                    BugTestButton(session: session)
                 } else {
                     Color.clear.frame(width: 44, height: 44)
                 }
@@ -567,25 +565,16 @@ private struct DebugOverlay: View {
     }
 }
 
-/// Press and hold to hide the screen and see the opening as it is today.
-private struct CompareButton: View {
+/// Bug test: a few bugs fly at the opening and bounce off wherever the
+/// screen is closed. Tap again to stop early.
+private struct BugTestButton: View {
     @ObservedObject var session: PhantomSession
 
     var body: some View {
-        Image(systemName: session.comparing ? "eye.slash" : "square.split.2x1")
-            .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 44, height: 44)
-            .contentShape(Circle())
-            .glass(Circle(), interactive: true)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in if !session.comparing { session.comparing = true } }
-                    .onEnded { _ in session.comparing = false }
-            )
-            .accessibilityLabel("Hold to compare before and after")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { session.comparing.toggle() }
+        GlassIconButton(systemName: session.bugTestRunning ? "xmark" : "ladybug",
+                        label: session.bugTestRunning ? "Stop the bug test" : "Bug test") {
+            if session.bugTestRunning { session.stopBugTest() } else { session.startBugTest() }
+        }
     }
 }
 

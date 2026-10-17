@@ -43,6 +43,11 @@ final class ScreenDoorEntity: Entity {
     /// space), where white balance samples the rendered frame.
     private(set) var paintSamplePoints: [SIMD3<Float>] = []
     private var samples: [SIMD3<Float>] = []
+    /// Rectangles (min x, min y, max x, max y in this entity's space) the
+    /// screen and its bars cover right now.
+    private var coverage: [SIMD4<Float>] = []
+    /// The mesh area, same layout. Around it is hardware or wall.
+    private var meshArea = SIMD4<Float>(repeating: 0)
 
     // Hardware sizes in metres, from the installed product.
     static let windowHousing: Float = 0.065     // window housing height and depth
@@ -55,6 +60,10 @@ final class ScreenDoorEntity: Entity {
     static let sideTrackWidth: Float = 0.045    // motorized side tracks
     static let sideTrackDepth: Float = 0.06
     static let bottomBar: Float = 0.05
+    static let cableGuide: Float = 0.025        // motorized cables, past each side of the screen
+    static let recessedSlot: Float = 0.014      // visible ceiling slot of a recessed headbox
+    static let vinylBorder: Float = 0.09        // fabric border around a vinyl panel
+    static let vinylBand: Float = 0.35          // mesh band below the vinyl
     /// One oversized screen covers up to 15 ft; wider openings get two.
     static let oversizedSingleMax: Float = 15 * 0.3048
 
@@ -105,7 +114,9 @@ final class ScreenDoorEntity: Entity {
         case .window:
             return Reach(left: track, right: track, top: windowHousing, bottom: barWidth + 0.005)
         case .motorized:
-            return Reach(left: sideTrackWidth, right: sideTrackWidth, top: headbox, bottom: 0)
+            let side = config.guide == .cables ? cableGuide : sideTrackWidth
+            let top = config.recessedHeadbox ? recessedSlot : headbox
+            return Reach(left: side, right: side, top: top, bottom: 0)
         }
     }
 
@@ -113,7 +124,10 @@ final class ScreenDoorEntity: Entity {
     static func mountDepth(for config: ScreenConfig) -> Float {
         switch config.product {
         case .window: return windowHousing
-        case .motorized: return headbox
+        case .motorized:
+            // Recessed, only the guides stand off the wall.
+            guard config.recessedHeadbox else { return headbox }
+            return config.guide == .cables ? 0.04 : sideTrackDepth
         default: return hardware(for: config).housingDepth
         }
     }
@@ -141,7 +155,33 @@ final class ScreenDoorEntity: Entity {
         var bar: ModelEntity
         var handle: Entity
         var corners: [ModelEntity]
+        /// Motorized vinyl panel parts, in place of the mesh quad.
+        var vinyl: VinylParts?
     }
+
+    /// A vinyl panel: fabric border, clear vinyl, and (optionally) a mesh band
+    /// above the bottom border.
+    private struct VinylParts {
+        var left: ModelEntity
+        var right: ModelEntity
+        var top: ModelEntity
+        var bottom: ModelEntity
+        var clear: ModelEntity
+        var band: ModelEntity?
+        var all: [ModelEntity] { [left, right, top, bottom, clear] + (band.map { [$0] } ?? []) }
+    }
+
+    /// Where the screen sits front to back, in this entity's space.
+    var screenPlaneZ: Float { content.position.z }
+
+    /// True where the screen (or one of its bars) covers the opening at
+    /// this point (this entity's space).
+    func isCovered(x: Float, y: Float) -> Bool {
+        func inside(_ r: SIMD4<Float>) -> Bool { x >= r.x && x <= r.z && y >= r.y && y <= r.w }
+        return !inside(meshArea) || coverage.contains(where: inside)
+    }
+
+    private var usesVinyl: Bool { config.product.isMotorized && config.mesh.isVinyl }
 
     required init() {
         config = ScreenConfig()
@@ -187,10 +227,12 @@ final class ScreenDoorEntity: Entity {
         c.finish = .classicWhite
         c.customColorHex = ""
         c.customMatchedToTrim = false
-        c.mesh = .insect
+        // Vinyl panels are built from parts; meshes just swap material.
+        c.mesh = config.product.isMotorized && config.mesh.isVinyl ? config.mesh : .insect
         c.colorUndecided = false
         c.closure = .latching
         c.motorControl = .remote
+        c.motor = .electric
         return c
     }
 
@@ -242,6 +284,42 @@ final class ScreenDoorEntity: Entity {
         return material
     }()
 
+    /// Woven fabric border of a vinyl panel.
+    private static let fabricMaterial: PhysicallyBasedMaterial = {
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: UIColor(white: 0.09, alpha: 1))
+        material.roughness = .init(floatLiteral: 0.85)
+        return material
+    }()
+
+    /// Clear vinyl: faintly tinted, glossy, mostly see-through.
+    private static let clearVinylMaterial: PhysicallyBasedMaterial = {
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: UIColor(red: 0.86, green: 0.9, blue: 0.92, alpha: 1))
+        material.roughness = .init(floatLiteral: 0.05)
+        material.clearcoat = .init(floatLiteral: 1)
+        material.clearcoatRoughness = .init(floatLiteral: 0.02)
+        material.blending = .transparent(opacity: 0.16)
+        return material
+    }()
+
+    /// Stainless cable and chrome floor brackets (not painted).
+    private static let steelMaterial: PhysicallyBasedMaterial = {
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: UIColor(white: 0.78, alpha: 1))
+        material.metallic = .init(floatLiteral: 1)
+        material.roughness = .init(floatLiteral: 0.3)
+        return material
+    }()
+
+    private static let chromeMaterial: PhysicallyBasedMaterial = {
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: UIColor(white: 0.92, alpha: 1))
+        material.metallic = .init(floatLiteral: 1)
+        material.roughness = .init(floatLiteral: 0.08)
+        return material
+    }()
+
     // MARK: - Static hardware
 
     private func rebuild() {
@@ -252,6 +330,7 @@ final class ScreenDoorEntity: Entity {
             leaf.bar.removeFromParent()
             leaf.handle.removeFromParent()
             leaf.corners.forEach { $0.removeFromParent() }
+            leaf.vinyl?.all.forEach { $0.removeFromParent() }
         }
         leaves = []
 
@@ -274,6 +353,8 @@ final class ScreenDoorEntity: Entity {
 
         let frame = frameMaterial()
         samples = []
+        let p = content.position
+        meshArea = SIMD4(p.x - w / 2, p.y - h / 2, p.x + w / 2, p.y + h / 2)
 
         switch config.product {
         case .single, .sliding:
@@ -362,21 +443,56 @@ final class ScreenDoorEntity: Entity {
                 bar: SIMD2(bw, Self.barDepth), handle: .tab, frame: frame)
     }
 
-    /// Headbox across the top, side tracks down to the floor, and a bottom
-    /// bar that comes to rest on the floor inside the opening.
+    /// Headbox across the top (or a slim slot when it's recessed into the
+    /// ceiling), side tracks or stainless cables down to the floor, and a
+    /// bottom bar that comes to rest on the floor inside the opening.
     private func buildMotorized(w: Float, h: Float, frame: PhysicallyBasedMaterial) {
         let hb = Self.headbox
-        let tw = Self.sideTrackWidth
-        let tdepth = Self.sideTrackDepth
-        let headbox = Self.chamferedMesh(length: w + 2 * tw + 0.02, width: hb, depth: hb,
-                                         chamfer: Self.headboxChamfer, vertical: false)
-        staticPart(headbox, SIMD3(0, h / 2 + hb / 2, 0), frame)
-        samples += [SIMD3(-w * 0.25, h / 2 + hb / 2, hb / 2), SIMD3(w * 0.25, h / 2 + hb / 2, hb / 2)]
-        let trackZ = -hb / 2 + tdepth / 2
-        staticBox(SIMD3(tw, h, tdepth), SIMD3(-w / 2 - tw / 2, 0, trackZ), frame)
-        staticBox(SIMD3(tw, h, tdepth), SIMD3(w / 2 + tw / 2, 0, trackZ), frame)
-        addLeaf(origin: h / 2, direction: -1, travel: h, span: w, horizontal: false,
-                bar: SIMD2(Self.bottomBar, tdepth * 0.8), handle: .none, frame: frame)
+        let cables = config.guide == .cables
+        let side = cables ? Self.cableGuide : Self.sideTrackWidth
+        let depth = Self.mountDepth(for: config)
+        let length = w + 2 * side + 0.02
+        if config.recessedHeadbox {
+            let slot = Self.recessedSlot
+            staticBox(SIMD3(length, slot, depth), SIMD3(0, h / 2 + slot / 2, 0), frame)
+            samples += [SIMD3(-w * 0.25, h / 2 + slot / 2, depth / 2), SIMD3(w * 0.25, h / 2 + slot / 2, depth / 2)]
+        } else {
+            let headbox = Self.chamferedMesh(length: length, width: hb, depth: hb,
+                                             chamfer: Self.headboxChamfer, vertical: false)
+            staticPart(headbox, SIMD3(0, h / 2 + hb / 2, 0), frame)
+            samples += [SIMD3(-w * 0.25, h / 2 + hb / 2, hb / 2), SIMD3(w * 0.25, h / 2 + hb / 2, hb / 2)]
+        }
+        let barDepth = Self.sideTrackDepth * 0.8
+        if cables {
+            // A cable just past each end of the screen, through the bottom
+            // bar, down to a chrome bracket on the floor. The bar rests on
+            // the brackets.
+            let bracket = SIMD3<Float>(0.026, 0.02, 0.05)
+            let cableX = w / 2 + side / 2
+            let cableZ: Float = -0.012
+            for s: Float in [-1, 1] {
+                metalPart(Self.boxMesh(SIMD3(0.004, h - bracket.y, 0.004)),
+                          SIMD3(s * cableX, bracket.y / 2, cableZ), Self.steelMaterial)
+                metalPart(Self.boxMesh(bracket), SIMD3(s * cableX, -h / 2 + bracket.y / 2, cableZ), Self.chromeMaterial)
+            }
+            addLeaf(origin: h / 2, direction: -1, travel: h - bracket.y, span: w, horizontal: false,
+                    bar: SIMD2(Self.bottomBar, barDepth), handle: .none, frame: frame, barOverhang: 2 * side)
+        } else {
+            let tdepth = Self.sideTrackDepth
+            let trackZ = -depth / 2 + tdepth / 2
+            staticBox(SIMD3(side, h, tdepth), SIMD3(-w / 2 - side / 2, 0, trackZ), frame)
+            staticBox(SIMD3(side, h, tdepth), SIMD3(w / 2 + side / 2, 0, trackZ), frame)
+            addLeaf(origin: h / 2, direction: -1, travel: h, span: w, horizontal: false,
+                    bar: SIMD2(Self.bottomBar, barDepth), handle: .none, frame: frame)
+        }
+    }
+
+    /// Unpainted hardware (keeps its own finish when the colour changes).
+    private func metalPart(_ mesh: MeshResource, _ position: SIMD3<Float>, _ material: PhysicallyBasedMaterial) {
+        let entity = ModelEntity(mesh: mesh, materials: [material])
+        entity.position = position
+        addShadow(to: entity)
+        staticRoot.addChild(entity)
     }
 
     private func staticBox(_ size: SIMD3<Float>, _ position: SIMD3<Float>, _ material: PhysicallyBasedMaterial) {
@@ -392,11 +508,13 @@ final class ScreenDoorEntity: Entity {
         staticRoot.addChild(entity)
     }
 
+    /// - Parameter barOverhang: extra bar length past the screen's edges.
     private func addLeaf(origin: Float, direction: Float, travel: Float, span: Float, horizontal: Bool,
-                         bar barDimensions: SIMD2<Float>, handle style: HandleStyle, frame: PhysicallyBasedMaterial) {
+                         bar barDimensions: SIMD2<Float>, handle style: HandleStyle, frame: PhysicallyBasedMaterial,
+                         barOverhang: Float = 0) {
         let bw = barDimensions.x
         let bd = barDimensions.y
-        let barSize = horizontal ? SIMD3(bw, span, bd) : SIMD3(span, bw, bd)
+        let barSize = horizontal ? SIMD3(bw, span + barOverhang, bd) : SIMD3(span + barOverhang, bw, bd)
         let screen = ModelEntity()
         let bar = ModelEntity(mesh: Self.boxMesh(barSize), materials: [frame])
         addShadow(to: bar)
@@ -439,12 +557,25 @@ final class ScreenDoorEntity: Entity {
             }
         }
 
+        var vinyl: VinylParts?
+        if usesVinyl, !horizontal {
+            func part(_ material: Material) -> ModelEntity {
+                let entity = ModelEntity(mesh: Self.unitQuad, materials: [material])
+                content.addChild(entity)
+                return entity
+            }
+            vinyl = VinylParts(left: part(Self.fabricMaterial), right: part(Self.fabricMaterial),
+                               top: part(Self.fabricMaterial), bottom: part(Self.fabricMaterial),
+                               clear: part(Self.clearVinylMaterial),
+                               band: config.mesh == .vinylMesh ? part(Self.material(for: .insect)) : nil)
+        }
+
         content.addChild(screen)
         content.addChild(bar)
         content.addChild(handle)
         leaves.append(Leaf(origin: origin, direction: direction, travel: travel, span: span,
                            horizontal: horizontal, barWidth: bw, barDepth: bd,
-                           screen: screen, bar: bar, handle: handle, corners: corners))
+                           screen: screen, bar: bar, handle: handle, corners: corners, vinyl: vinyl))
     }
 
     // MARK: - Moving parts
@@ -460,6 +591,7 @@ final class ScreenDoorEntity: Entity {
         // Tracks are in this entity's space; the parts are offset by the mount.
         let offset = content.position
         tracks = []
+        coverage = []
         for leaf in leaves {
             let bw = leaf.barWidth
             let handleZ = leaf.barDepth / 2
@@ -472,7 +604,10 @@ final class ScreenDoorEntity: Entity {
 
             let (screenW, screenH) = leaf.horizontal ? (screenLength, leaf.span) : (leaf.span, screenLength)
             let visible = screenW > 0.005 && screenH > 0.005
-            if visible, let mesh = Self.screenMesh(width: screenW, height: screenH) {
+            if let vinyl = leaf.vinyl {
+                leaf.screen.isEnabled = false
+                layoutVinyl(vinyl, leaf: leaf, shown: screenLength)
+            } else if visible, let mesh = Self.screenMesh(width: screenW, height: screenH) {
                 if leaf.screen.model == nil {
                     leaf.screen.model = ModelComponent(mesh: mesh, materials: [material])
                 } else {
@@ -490,6 +625,9 @@ final class ScreenDoorEntity: Entity {
                 tracks.append(DragTrack(start: offset + SIMD3(leaf.origin, 0, 0),
                                         end: offset + SIMD3(leaf.origin + leaf.direction * leaf.travel, 0, 0),
                                         bar: offset + SIMD3(barAt, 0, 0)))
+                let a = leaf.origin, b = leaf.origin + leaf.direction * length
+                coverage.append(SIMD4(min(a, b) + offset.x, -leaf.span / 2 + offset.y,
+                                      max(a, b) + offset.x, leaf.span / 2 + offset.y))
             } else {
                 leaf.screen.position = SIMD3(0, screenAt, 0)
                 leaf.bar.position = SIMD3(0, barAt, 0)
@@ -497,6 +635,9 @@ final class ScreenDoorEntity: Entity {
                 tracks.append(DragTrack(start: offset + SIMD3(0, leaf.origin, 0),
                                         end: offset + SIMD3(0, leaf.origin + leaf.direction * leaf.travel, 0),
                                         bar: offset + SIMD3(0, barAt, 0)))
+                let a = leaf.origin, b = leaf.origin + leaf.direction * length
+                coverage.append(SIMD4(-leaf.span / 2 + offset.x, min(a, b) + offset.y,
+                                      leaf.span / 2 + offset.x, max(a, b) + offset.y))
             }
 
             // Mesh-lock corners follow the top and bottom of the mesh's
@@ -512,6 +653,47 @@ final class ScreenDoorEntity: Entity {
                     // The unit triangle points into +x/+y; flip it toward the mesh.
                     corner.scale = SIMD3(-sign.0 * size, -sign.1 * size, 1)
                 }
+            }
+        }
+    }
+
+    /// Places a vinyl panel's parts for `shown` metres let down. The panel
+    /// unrolls from the top, so what shows is its lowest `shown` metres.
+    private func layoutVinyl(_ vinyl: VinylParts, leaf: Leaf, shown: Float) {
+        // The most that ever shows: the bar takes the rest of the travel.
+        let full = max(leaf.travel - leaf.barWidth, 0.01)
+        let w = leaf.span
+        let border = min(Self.vinylBorder, w / 6, full / 6)
+        let band = vinyl.band == nil ? 0 : min(Self.vinylBand, (full - 2 * border) * 0.3)
+        let innerW = max(w - 2 * border, 0.01)
+        // Panel heights measured up from its bottom edge, which sits at
+        // `bottomY` in the entity.
+        let bottomY = leaf.origin - shown
+        func place(_ part: ModelEntity, from p0: Float, to p1: Float, x: Float, width: Float) {
+            let top = min(p1, shown)
+            guard top - p0 > 0.002, width > 0.002 else {
+                part.isEnabled = false
+                return
+            }
+            part.isEnabled = true
+            part.position = SIMD3(x, bottomY + (p0 + top) / 2, 0)
+            part.scale = SIMD3(width, top - p0, 1)
+        }
+        let sideX = w / 2 - border / 2
+        place(vinyl.left, from: 0, to: full, x: -sideX, width: border)
+        place(vinyl.right, from: 0, to: full, x: sideX, width: border)
+        place(vinyl.bottom, from: 0, to: border, x: 0, width: innerW)
+        place(vinyl.top, from: full - border, to: full, x: 0, width: innerW)
+        place(vinyl.clear, from: border + band, to: full - border, x: 0, width: innerW)
+        if let mesh = vinyl.band {
+            // The weave keeps its real scale, so the band gets its own quad.
+            let top = min(border + band, shown)
+            if top - border > 0.002, let quad = Self.screenMesh(width: innerW, height: top - border) {
+                mesh.model?.mesh = quad
+                mesh.isEnabled = true
+                mesh.position = SIMD3(0, bottomY + (border + top) / 2, 0)
+            } else {
+                mesh.isEnabled = false
             }
         }
     }
@@ -662,6 +844,11 @@ final class ScreenDoorEntity: Entity {
         return (try? MeshResource.generate(from: [descriptor])) ?? MeshResource.generatePlane(width: 0.01, height: 0.01)
     }()
 
+    /// A double-sided 1 m square, scaled into place.
+    private static let unitQuad: MeshResource = {
+        screenMesh(width: 1, height: 1) ?? MeshResource.generatePlane(width: 1, height: 1)
+    }()
+
     /// A double-sided quad whose UVs repeat the weave every `tile` metres,
     /// so the mesh keeps its real-world scale as the screen extends.
     private static func screenMesh(width: Float, height: Float) -> MeshResource? {
@@ -703,7 +890,7 @@ final class ScreenDoorEntity: Entity {
     private static func weaveTexture(for type: MeshType) -> TextureResource? {
         let params: (strands: Int, lineWidth: CGFloat, lineAlpha: CGFloat, fillAlpha: CGFloat)
         switch type {
-        case .insect: params = (2, 5, 0.82, 0)
+        case .insect, .clearVinyl, .vinylMesh: params = (2, 5, 0.82, 0)
         case .pet: params = (2, 10, 0.9, 0.08)
         case .sun: params = (3, 9, 0.88, 0.32)
         case .privacy: params = (4, 10, 0.95, 0.6)

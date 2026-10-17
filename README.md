@@ -22,15 +22,20 @@ on iOS 17–25).
    assuming the trim is white).
 3. **Open and close it.** Drag the pull handle (or the bottom bar of a motorized screen,
    which also has ▲ ■ ▼ controls). Touch a corner of the screen and drag it to fine-tune.
-   Hold **compare** to hide it.
+   Tap the **ladybug** for a bug test: bugs fly at the opening, bounce off the closed
+   screen and get in where it's open.
 4. **Customize** covers the options on phantomscreens.com, with everything pre-chosen. The
    option bar above the toolbar shows each current choice; tapping one opens a short tabbed
    sheet on it, so the screen stays in view:
    - **Screen type**: Door Screen or Door Screen with Mesh Lock, and the retract side.
    - **Measurement**: the measured size and the matching height and width bands.
    - **Closure**: Latching Handle (preselected), Latching Handle with Latch Stop, Magnet Handle.
-   - **Control** (motorized): remote, wall switch or smart home.
-   - **Mesh**: Insect, or a custom mesh (pet, sun & heat, privacy).
+   - **Motor & Control** (motorized): electric motor (solar coming soon); remote, wall switch
+     or smart home; side tracks or stainless cable guides with chrome floor brackets; and,
+     with Settings → Advanced → Advanced product customization, a headbox recessed into the
+     ceiling.
+   - **Mesh**: Insect, or a custom mesh (pet, sun & heat, privacy). Motorized screens can also
+     have a clear vinyl panel in a fabric border, with or without a band of mesh.
    - **Color**: the ten standard colors, wood grain, a custom color (pick it, or tap the
      eyedropper to match any real color with the camera) or "decide later". The closest
      standard color to your trim is suggested.
