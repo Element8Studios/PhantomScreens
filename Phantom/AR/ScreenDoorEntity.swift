@@ -672,8 +672,7 @@ final class ScreenDoorEntity: Entity {
                 if leaf.screen.model == nil {
                     leaf.screen.model = ModelComponent(mesh: Self.unitQuad, materials: [])
                 }
-                leaf.screen.model?.materials = [Self.tiled(weave, width: screenW, height: screenH)]
-                leaf.screen.scale = SIMD3(screenW, screenH, 1)
+                Self.applyWeave(weave, to: leaf.screen, width: screenW, height: screenH)
                 leaf.screen.isEnabled = true
             } else {
                 leaf.screen.isEnabled = false
@@ -762,18 +761,40 @@ final class ScreenDoorEntity: Entity {
             place(mesh, from: border, to: border + band, x: 0, width: innerW)
             if mesh.isEnabled {
                 let weave = Self.material(for: .insect, color: config.meshColor)
-                mesh.model?.materials = [Self.tiled(weave, width: innerW, height: mesh.scale.y)]
+                Self.applyWeave(weave, to: mesh, width: innerW, height: mesh.scale.y)
             }
         }
     }
 
-    /// `weave` with its texture repeating every `tile` metres over a unit
-    /// quad scaled to `width` × `height`.
-    private static func tiled(_ weave: UnlitMaterial, width: Float, height: Float) -> UnlitMaterial {
-        var material = weave
-        let scale = SIMD2<Float>(width / tile, height / tile)
-        material.textureCoordinateTransform = .init(offset: .zero, scale: scale)
-        return material
+    /// Sizes `entity` (a unit quad) to `width` × `height`, with the weave
+    /// repeating every `tile` metres. iOS 18 scales the texture; iOS 17's
+    /// unlit materials can't, so the repeat goes into the quad's UVs instead
+    /// (rounded to a quarter tile, so the quads can be reused).
+    private static func applyWeave(_ weave: UnlitMaterial, to entity: ModelEntity, width: Float, height: Float) {
+        entity.scale = SIMD3(width, height, 1)
+        if #available(iOS 18.0, *) {
+            var material = weave
+            let scale = SIMD2<Float>(width / tile, height / tile)
+            material.textureCoordinateTransform = .init(offset: .zero, scale: scale)
+            entity.model?.mesh = unitQuad
+            entity.model?.materials = [material]
+        } else {
+            let repeats = SIMD2<Int>(Int((width / tile * 4).rounded()), Int((height / tile * 4).rounded()))
+            entity.model?.mesh = tiledQuad(repeats)
+            entity.model?.materials = [weave]
+        }
+    }
+
+    /// iOS 17: unit quads with the weave's repeat (in quarter tiles) built in.
+    private static var tiledQuads: [SIMD2<Int>: MeshResource] = [:]
+
+    private static func tiledQuad(_ quarters: SIMD2<Int>) -> MeshResource {
+        if let cached = tiledQuads[quarters] { return cached }
+        if tiledQuads.count > 400 { tiledQuads.removeAll() }
+        let uv = SIMD2<Float>(Float(max(quarters.x, 1)), Float(max(quarters.y, 1))) / 4
+        let mesh = quad(uvScale: uv)
+        tiledQuads[quarters] = mesh
+        return mesh
     }
 
     private func addShadow(to entity: ModelEntity) {
@@ -925,9 +946,14 @@ final class ScreenDoorEntity: Entity {
     /// A double-sided 1 m square, scaled into place. UVs run 0–1, left to
     /// right and top to bottom; materials scale and offset them with a
     /// texture-coordinate transform.
-    private static let unitQuad: MeshResource = {
+    private static let unitQuad = quad(uvScale: SIMD2(1, 1))
+
+    /// A double-sided 1 m square with UVs running 0…`uvScale`.
+    private static func quad(uvScale: SIMD2<Float>) -> MeshResource {
+        let u = uvScale.x
+        let v = uvScale.y
         let corners: [SIMD3<Float>] = [[-0.5, -0.5, 0], [0.5, -0.5, 0], [0.5, 0.5, 0], [-0.5, 0.5, 0]]
-        let uvs: [SIMD2<Float>] = [[0, 1], [1, 1], [1, 0], [0, 0]]
+        let uvs: [SIMD2<Float>] = [[0, v], [u, v], [u, 0], [0, 0]]
 
         var descriptor = MeshDescriptor(name: "unitQuad")
         descriptor.positions = MeshBuffers.Positions(corners + corners)
@@ -940,7 +966,7 @@ final class ScreenDoorEntity: Entity {
         descriptor.tangents = MeshBuffers.Tangents(Array(repeating: SIMD3<Float>(1, 0, 0), count: 8))
         descriptor.primitives = .triangles([0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6])
         return (try? MeshResource.generate(from: [descriptor])) ?? MeshResource.generatePlane(width: 1, height: 1)
-    }()
+    }
 
     // MARK: - Textures
 
